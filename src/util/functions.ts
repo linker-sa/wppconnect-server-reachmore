@@ -47,35 +47,42 @@ export function contactToArray(
   number: any,
   isGroup?: boolean,
   isNewsletter?: boolean,
-  isLid?: boolean
+  isLid?: boolean,
 ) {
   const localArr: any = [];
-  if (Array.isArray(number)) {
-    for (let contact of number) {
-      isGroup || isNewsletter
-        ? (contact = contact.split('@')[0])
-        : (contact = contact.split('@')[0]?.replace(/[^\w ]/g, ''));
-      if (contact !== '')
-        if (isGroup) (localArr as any).push(`${contact}@g.us`);
-        else if (isNewsletter) (localArr as any).push(`${contact}@newsletter`);
-        else if (isLid || contact.length >= 14)
-          (localArr as any).push(`${contact}@lid`);
-        else (localArr as any).push(`${contact}@c.us`);
+
+  const pushContact = (raw: any) => {
+    const value = String(raw ?? '').trim();
+    if (value === '') return;
+
+    // Respect an explicit domain suffix supplied by the caller
+    // (e.g. "12345@lid", "12345@c.us", "12345@g.us", "12345@newsletter").
+    // Length-based guessing below is unreliable for LIDs, so an explicit
+    // suffix always wins.
+    const explicit = value.match(/@(g\.us|newsletter|lid|c\.us)$/i);
+    if (explicit) {
+      const id = value.split('@')[0].replace(/[^\w ]/g, '');
+      if (id !== '') (localArr as any).push(`${id}@${explicit[1].toLowerCase()}`);
+      return;
     }
-  } else {
-    const arrContacts = number.split(/\s*[,;]\s*/g);
-    for (let contact of arrContacts) {
+
+    const contact =
       isGroup || isNewsletter
-        ? (contact = contact.split('@')[0])
-        : (contact = contact.split('@')[0]?.replace(/[^\w ]/g, ''));
-      if (contact !== '')
-        if (isGroup) (localArr as any).push(`${contact}@g.us`);
-        else if (isNewsletter) (localArr as any).push(`${contact}@newsletter`);
-        else if (isLid || contact.length >= 14)
-          (localArr as any).push(`${contact}@lid`);
-        else (localArr as any).push(`${contact}@c.us`);
-    }
-  }
+        ? value.split('@')[0]
+        : value.split('@')[0]?.replace(/[^\w ]/g, '');
+    if (!contact || contact === '') return;
+
+    if (isGroup) (localArr as any).push(`${contact}@g.us`);
+    else if (isNewsletter) (localArr as any).push(`${contact}@newsletter`);
+    else if (isLid || contact.length >= 14)
+      (localArr as any).push(`${contact}@lid`);
+    else (localArr as any).push(`${contact}@c.us`);
+  };
+
+  const contacts = Array.isArray(number)
+    ? number
+    : String(number).split(/\s*[,;]\s*/g);
+  for (const contact of contacts) pushContact(contact);
 
   return localArr;
 }
@@ -118,7 +125,7 @@ export async function callWebHook(
   client: any,
   req: Request,
   event: any,
-  data: any
+  data: any,
 ) {
   const webhook =
     client?.config.webhook || req.serverOptions.webhook.url || false;
@@ -203,7 +210,7 @@ export async function autoDownload(client: any, req: any, message: any) {
             new CreateBucketCommand({
               Bucket: bucketName,
               ObjectOwnership: 'ObjectWriter',
-            })
+            }),
           );
           await s3Client.send(
             new PutPublicAccessBlockCommand({
@@ -213,7 +220,7 @@ export async function autoDownload(client: any, req: any, message: any) {
                 IgnorePublicAcls: false,
                 BlockPublicPolicy: false,
               },
-            })
+            }),
           );
         }
 
@@ -224,7 +231,7 @@ export async function autoDownload(client: any, req: any, message: any) {
             Body: buffer,
             ContentType: message.mimetype,
             ACL: 'public-read',
-          })
+          }),
         );
 
         message.fileUrl = `https://${bucketName}.s3.amazonaws.com/${fileName}`;
@@ -240,7 +247,7 @@ export async function autoDownload(client: any, req: any, message: any) {
 export async function startAllSessions(config: any, logger: any) {
   try {
     await api.post(
-      `${config.host}:${config.port}/api/${config.secretKey}/start-all`
+      `${config.host}:${config.port}/api/${config.secretKey}/start-all`,
     );
   } catch (e) {
     logger.error(e);
@@ -291,10 +298,10 @@ async function archive(client: any, req: any) {
         if (DaysBetween(date) > req.serverOptions.archive.daysToArchive) {
           await client.archiveChat(
             chats[i].id.id || chats[i].id._serialized,
-            true
+            true,
           );
           await sleep(
-            Math.floor(Math.random() * req.serverOptions.archive.waitTime + 1)
+            Math.floor(Math.random() * req.serverOptions.archive.waitTime + 1),
           );
         }
       }
@@ -314,12 +321,12 @@ function DaysBetween(StartDate: Date) {
   const start = Date.UTC(
     endDate.getFullYear(),
     endDate.getMonth(),
-    endDate.getDate()
+    endDate.getDate(),
   );
   const end = Date.UTC(
     StartDate.getFullYear(),
     StartDate.getMonth(),
-    StartDate.getDate()
+    StartDate.getDate(),
   );
 
   // so it's safe to divide by 24 hours
