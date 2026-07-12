@@ -21,7 +21,7 @@ import { contactToArray } from '../util/functions';
 export default async function statusConnection(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) {
   try {
     const numbers: any = [];
@@ -32,11 +32,19 @@ export default async function statusConnection(
         req.body.phone || [],
         req.body.isGroup,
         req.body.isNewsletter,
-        req.body.isLid
+        req.body.isLid,
       );
       let index = 0;
       for (const contact of localArr) {
-        if (req.body.isGroup || req.body.isNewsletter) {
+        if (
+          req.body.isGroup ||
+          req.body.isNewsletter ||
+          req.body.isLid ||
+          String(contact).endsWith('@lid')
+        ) {
+          // Groups, newsletters and LID contacts cannot be validated with
+          // checkNumberStatus (it only resolves phone numbers), so pass them
+          // through untouched instead of wrongly rejecting them as "não existe".
           localArr[index] = contact;
         } else if (numbers.indexOf(contact) < 0) {
           console.log(contact);
@@ -45,7 +53,7 @@ export default async function statusConnection(
             .catch((error) => console.log(error));
           if (!profile?.numberExists) {
             const num = (contact as any).split('@')[0];
-            res.status(400).json({
+            return res.status(400).json({
               response: null,
               status: 'Connected',
               message: `O número ${num} não existe.`,
@@ -61,7 +69,7 @@ export default async function statusConnection(
       }
       req.body.phone = localArr;
     } else {
-      res.status(404).json({
+      return res.status(404).json({
         response: null,
         status: 'Disconnected',
         message: 'A sessão do WhatsApp não está ativa.',
