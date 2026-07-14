@@ -277,44 +277,7 @@ export default class CreateSessionUtil {
       if (conflits.includes(state)) {
         client.useHere();
       }
-
-      // When the phone unlinks/logs out the device (WhatsApp > Linked Devices >
-      // log out), the socket drops to an UNPAIRED state. wppconnect does NOT
-      // surface this through the `statusFind` callback, so without handling it
-      // here the session lingers as CONNECTED forever and downstream consumers
-      // (the webhook, and therefore the dashboard) never learn the number was
-      // disconnected. UNPAIRED also occurs transiently before the first QR scan,
-      // so only treat it as a logout once the session had actually connected.
-      const unpaired = [SocketState.UNPAIRED, SocketState.UNPAIRED_IDLE];
-      if (unpaired.includes(state) && client.status === 'CONNECTED') {
-        this.handleRemoteLogout(client, req);
-      }
     });
-  }
-
-  // Tear a session down after a phone-side unlink and notify downstream via the
-  // same `status-find` webhook the connect flow already uses, so consumers can
-  // clear their stored connection state. Mirrors the disconnectedMobile branch
-  // of the `statusFind` handler above.
-  private handleRemoteLogout(client: any, req: Request) {
-    if (client.status === 'CLOSED') return;
-    req.logger.info(`Session ${client.session} unlinked from phone; closing.`);
-
-    client.status = 'CLOSED';
-    client.qrcode = null;
-
-    req.io.emit('session-logged', { status: false, session: client.session });
-    callWebHook(client, req, 'status-find', {
-      status: 'unpaired',
-      session: client.session,
-    });
-
-    try {
-      client.close();
-    } catch (error) {
-      req.logger.error(error);
-    }
-    (clientsArray as any)[client.session] = undefined;
   }
 
   async listenMessages(client: WhatsAppServer, req: Request) {
