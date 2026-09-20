@@ -1,3 +1,4 @@
+import { tokensDir } from '../sessionPaths';
 import { FileTokenStore as fsTokenStore } from './FileTokenStore/FileTokenStore';
 
 class FileTokenStore {
@@ -6,6 +7,7 @@ class FileTokenStore {
     this.client = client;
   }
   tokenStore = new fsTokenStore({
+    path: tokensDir,
     encodeFunction: (data) => {
       return this.encodeFunction(data, this.client.config);
     },

@@ -1,4 +1,5 @@
 import { ServerOptions } from './types/ServerOptions';
+import { userDataDirBase } from './util/sessionPaths';
 
 export default {
   secretKey: process.env.SECRET_KEY || 'THISISMYSECURETOKEN',
@@ -9,7 +10,7 @@ export default {
   startAllSession: true,
   tokenStoreType: 'file',
   maxListeners: 15,
-  customUserDataDir: './userDataDir/',
+  customUserDataDir: userDataDirBase,
   webhook: {
     url: null,
     autoDownload: true,
