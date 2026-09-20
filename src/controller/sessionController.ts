@@ -25,6 +25,7 @@ import config from '../config';
 import CreateSessionUtil from '../util/createSessionUtil';
 import { callWebHook, contactToArray } from '../util/functions';
 import getAllTokens from '../util/getAllTokens';
+import { tokenFilePath } from '../util/sessionPaths';
 import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
 
 const SessionUtil = new CreateSessionUtil();
@@ -300,7 +301,7 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
 
     setTimeout(async () => {
       const pathUserData = config.customUserDataDir + req.session;
-      const pathTokens = __dirname + `../../../tokens/${req.session}.data.json`;
+      const pathTokens = tokenFilePath(req.session);
 
       if (fs.existsSync(pathUserData)) {
         await fs.promises.rm(pathUserData, {

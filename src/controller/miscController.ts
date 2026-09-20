@@ -20,6 +20,7 @@ import fs from 'fs';
 import { logger } from '..';
 import config from '../config';
 import { backupSessions, restoreSessions } from '../util/manageSession';
+import { tokenFilePath } from '../util/sessionPaths';
 import { clientsArray } from '../util/sessionUtil';
 
 export async function backupAllSessions(req: Request, res: Response) {
@@ -161,7 +162,7 @@ export async function clearSessionData(req: Request, res: Response) {
       await req.client.logout();
     }
     const path = config.customUserDataDir + session;
-    const pathToken = __dirname + `../../../tokens/${session}.data.json`;
+    const pathToken = tokenFilePath(session);
     if (fs.existsSync(path)) {
       await fs.promises.rm(path, {
         recursive: true,
