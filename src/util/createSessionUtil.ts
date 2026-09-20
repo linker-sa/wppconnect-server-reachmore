@@ -20,6 +20,7 @@ import { download } from '../controller/sessionController';
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
+import { clearStaleChromiumLocks } from './sessionPaths';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
 
@@ -55,9 +56,20 @@ export default class CreateSessionUtil {
       this.startChatWootClient(client);
 
       if (req.serverOptions.customUserDataDir) {
-        req.serverOptions.createOptions.puppeteerOptions = {
-          userDataDir: req.serverOptions.customUserDataDir + session,
-        };
+        const userDataDir = req.serverOptions.customUserDataDir + session;
+
+        // A replaced container never shuts Chromium down cleanly, so its
+        // singleton lock survives inside the profile. Harmless while the
+        // profile died with the container; on a mounted volume it outlives the
+        // process and the next launch fails with "profile appears to be in use
+        // by another Chromium process ... on another computer".
+        const cleared = clearStaleChromiumLocks(userDataDir);
+        if (cleared.length)
+          req.logger.info(
+            `[${session}] cleared stale Chromium lock(s): ${cleared.join(', ')}`
+          );
+
+        req.serverOptions.createOptions.puppeteerOptions = { userDataDir };
       }
 
       const wppClient = await create(
