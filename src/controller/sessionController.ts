@@ -215,8 +215,9 @@ export async function showAllSessions(
 
   const arr: any = [];
 
+  // Must return: without it a wrong secret still got the full session list.
   if (tokenDecrypt !== req.serverOptions.secretKey) {
-    res.status(400).json({
+    return res.status(400).json({
       response: false,
       message: 'The token is incorrect',
     });
@@ -226,7 +227,7 @@ export async function showAllSessions(
     arr.push({ session: item });
   });
 
-  res.status(200).json({ response: await getAllTokens(req) });
+  return res.status(200).json({ response: await getAllTokens(req) });
 }
 
 export async function startSession(req: Request, res: Response): Promise<any> {
