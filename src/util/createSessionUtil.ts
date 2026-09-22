@@ -69,7 +69,14 @@ export default class CreateSessionUtil {
             `[${session}] cleared stale Chromium lock(s): ${cleared.join(', ')}`
           );
 
-        req.serverOptions.createOptions.puppeteerOptions = { userDataDir };
+        req.serverOptions.createOptions.puppeteerOptions = {
+          userDataDir,
+          // Shutdown is handled by gracefulShutdown.ts, which closes the
+          // browser; puppeteer's handlers would kill it instead.
+          handleSIGINT: false,
+          handleSIGTERM: false,
+          handleSIGHUP: false,
+        };
       }
 
       const wppClient = await create(
