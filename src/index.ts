@@ -35,6 +35,7 @@ import {
   startAllSessions,
 } from './util/functions';
 import { createLogger } from './util/logger';
+import { startResourceMonitor } from './util/resourceMonitor';
 
 //require('dotenv').config();
 
@@ -124,6 +125,7 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     logger.info(`WPPConnect-Server version: ${version}`);
 
     if (serverOptions.startAllSession) startAllSessions(serverOptions, logger);
+    startResourceMonitor(logger);
   });
 
   if (config.log.level === 'error' || config.log.level === 'warn') {
