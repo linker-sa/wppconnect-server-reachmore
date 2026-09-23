@@ -3,11 +3,18 @@ import os from 'os';
 import path from 'path';
 
 import {
+  browserPid,
   containerMemory,
+  perSessionMemoryMb,
   processTreeMemoryKb,
   resourceSummary,
   scanProcesses,
 } from '../resourceMonitor';
+
+/** A wppconnect client whose browser root process is `pid` (or none). */
+const clientWithPid = (pid: number | null) => ({
+  page: { browser: () => ({ process: () => (pid ? { pid } : null) }) },
+});
 
 /**
  * Sizing the shared container needs the per-session memory of real linked
@@ -192,6 +199,49 @@ describe('containerMemory', () => {
   });
 });
 
+describe('perSessionMemoryMb', () => {
+  it('sums each session tree from its client browser pid', () => {
+    fakeChromium(100, 'wpp_a', [300, 90, 22]);
+    fakeChromium(200, 'wpp_b', [280, 98, 20]);
+    const mem = perSessionMemoryMb(
+      { wpp_a: clientWithPid(100), wpp_b: clientWithPid(200) },
+      proc
+    );
+    expect(mem.get('wpp_a')).toBe(412);
+    expect(mem.get('wpp_b')).toBe(398);
+  });
+
+  it('skips a session whose browser is not running', () => {
+    fakeChromium(100, 'wpp_a', [300, 90, 22]);
+    const mem = perSessionMemoryMb(
+      {
+        wpp_a: clientWithPid(100),
+        wpp_starting: clientWithPid(null),
+        gone: {},
+      },
+      proc
+    );
+    expect([...mem.keys()]).toEqual(['wpp_a']);
+  });
+});
+
+describe('browserPid', () => {
+  it('reads the pid, and returns null when the handle throws or is empty', () => {
+    expect(browserPid(clientWithPid(4242))).toBe(4242);
+    expect(browserPid(clientWithPid(null))).toBeNull();
+    expect(browserPid({})).toBeNull();
+    expect(
+      browserPid({
+        page: {
+          browser: () => {
+            throw new Error('closed');
+          },
+        },
+      })
+    ).toBeNull();
+  });
+});
+
 describe('resourceSummary', () => {
   it('reports container, node and every browser by full session name', () => {
     fakeChromium(100, 'wpp_reachmore_71_1789918239024', [300, 90, 22]);
@@ -205,11 +255,14 @@ describe('resourceSummary', () => {
     fs.writeFileSync(path.join(cgroup, 'memory.max'), String(8 * 1024 ** 3));
 
     const line = resourceSummary({
+      clients: {
+        wpp_reachmore_71_1789918239024: clientWithPid(100),
+        wpp_reachmore_195_1789920296968: clientWithPid(200),
+      },
       procRoot: proc,
       cgroupRoot: cgroup,
       selfCgroup,
       selfPid: 300,
-      profileBase: '/data/userDataDir/',
     });
 
     expect(line).toBe(
