@@ -282,3 +282,19 @@ describe('startSessionRecycler', () => {
     }
   });
 });
+
+describe('recycler default', () => {
+  it('is off unless RECYCLE_CHECK_INTERVAL_MS is set', () => {
+    // Thresholds must come from measured baselines; never recycle by default.
+    const { RECYCLE_CHECK_INTERVAL_MS } =
+      jest.requireActual('../sessionRecycler');
+    expect(process.env.RECYCLE_CHECK_INTERVAL_MS).toBeUndefined();
+    expect(RECYCLE_CHECK_INTERVAL_MS).toBe(0);
+    const timer = startSessionRecycler({
+      logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      serverOptions: {} as any,
+      io: {} as any,
+    });
+    expect(timer).toBeNull();
+  });
+});

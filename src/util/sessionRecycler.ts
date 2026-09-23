@@ -28,10 +28,15 @@ import { clientsArray } from './sessionUtil';
  *  - one at a time, and never while another recycle is in flight.
  *
  * All four are configurable; setting the interval to 0 disables the worker.
+ *
+ * OFF BY DEFAULT: thresholds must come from measured per-session baselines
+ * (the [resources] line). A fixed low threshold would recycle a heavy account
+ * (prod 437 idles near 1.4 GB) in a loop; set RECYCLE_CHECK_INTERVAL_MS to
+ * enable it once the numbers are known.
  */
 export const RECYCLE_CHECK_INTERVAL_MS = intEnv(
   'RECYCLE_CHECK_INTERVAL_MS',
-  120000,
+  0,
   0
 );
 export const RECYCLE_MEMORY_THRESHOLD_MB = intEnv(
