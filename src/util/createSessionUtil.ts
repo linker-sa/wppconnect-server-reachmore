@@ -20,6 +20,8 @@ import { download } from '../controller/sessionController';
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
+import { recordActivity } from './sessionActivity';
+import { clearStaleChromiumLocks } from './sessionPaths';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
 
@@ -55,8 +57,26 @@ export default class CreateSessionUtil {
       this.startChatWootClient(client);
 
       if (req.serverOptions.customUserDataDir) {
+        const userDataDir = req.serverOptions.customUserDataDir + session;
+
+        // A replaced container never shuts Chromium down cleanly, so its
+        // singleton lock survives inside the profile. Harmless while the
+        // profile died with the container; on a mounted volume it outlives the
+        // process and the next launch fails with "profile appears to be in use
+        // by another Chromium process ... on another computer".
+        const cleared = clearStaleChromiumLocks(userDataDir);
+        if (cleared.length)
+          req.logger.info(
+            `[${session}] cleared stale Chromium lock(s): ${cleared.join(', ')}`
+          );
+
         req.serverOptions.createOptions.puppeteerOptions = {
-          userDataDir: req.serverOptions.customUserDataDir + session,
+          userDataDir,
+          // Shutdown is handled by gracefulShutdown.ts, which closes the
+          // browser; puppeteer's handlers would kill it instead.
+          handleSIGINT: false,
+          handleSIGTERM: false,
+          handleSIGHUP: false,
         };
       }
 
@@ -282,6 +302,7 @@ export default class CreateSessionUtil {
 
   async listenMessages(client: WhatsAppServer, req: Request) {
     await client.onMessage(async (message: any) => {
+      recordActivity(client.session);
       eventEmitter.emit(`mensagem-${client.session}`, client, message);
       callWebHook(client, req, 'onmessage', message);
       if (message.type === 'location')
@@ -291,6 +312,7 @@ export default class CreateSessionUtil {
     });
 
     await client.onAnyMessage(async (message: any) => {
+      recordActivity(client.session);
       message.session = client.session;
 
       if (message.type === 'sticker') {
