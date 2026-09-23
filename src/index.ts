@@ -34,7 +34,10 @@ import {
   setMaxListners,
   startAllSessions,
 } from './util/functions';
+import { installGracefulShutdown } from './util/gracefulShutdown';
 import { createLogger } from './util/logger';
+import { startResourceMonitor } from './util/resourceMonitor';
+import { clientsArray } from './util/sessionUtil';
 
 //require('dotenv').config();
 
@@ -124,6 +127,8 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     logger.info(`WPPConnect-Server version: ${version}`);
 
     if (serverOptions.startAllSession) startAllSessions(serverOptions, logger);
+    startResourceMonitor(logger);
+    installGracefulShutdown(clientsArray as any, logger);
   });
 
   if (config.log.level === 'error' || config.log.level === 'warn') {

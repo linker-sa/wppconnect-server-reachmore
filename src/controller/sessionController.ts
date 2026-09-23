@@ -26,6 +26,11 @@ import CreateSessionUtil from '../util/createSessionUtil';
 import { callWebHook, contactToArray } from '../util/functions';
 import getAllTokens from '../util/getAllTokens';
 import { tokenFilePath } from '../util/sessionPaths';
+import {
+  START_CONCURRENCY,
+  START_SLOT_TIMEOUT_MS,
+  startWithLimit,
+} from '../util/sessionStartQueue';
 import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
 
 const SessionUtil = new CreateSessionUtil();
@@ -99,6 +104,9 @@ export async function download(message: any, client: any, logger: any) {
   }
 }
 
+/** Guards against two overlapping start-all runs doubling the load. */
+let startAllInProgress = false;
+
 export async function startAllSessions(
   req: Request,
   res: Response
@@ -128,19 +136,49 @@ export async function startAllSessions(
     tokenDecrypt = secretkey;
   }
 
-  const allSessions = await getAllTokens(req);
-
+  // Check the secret before touching anything. This used to answer 400 and
+  // then fall through, so a request with a wrong secret still started every
+  // session (and then threw "Cannot set headers after they are sent").
   if (tokenDecrypt !== req.serverOptions.secretKey) {
-    res.status(400).json({
+    return res.status(400).json({
       response: 'error',
       message: 'The token is incorrect',
     });
   }
 
-  allSessions.map(async (session: string) => {
-    const util = new CreateSessionUtil();
-    await util.opendata(req, session);
-  });
+  if (startAllInProgress) {
+    return res.status(409).json({
+      status: 'error',
+      message: 'Sessions are already being started',
+    });
+  }
+
+  const allSessions: string[] = await getAllTokens(req);
+  req.logger.info(
+    `Starting ${allSessions.length} session(s), ${START_CONCURRENCY} at a time`
+  );
+
+  // Not awaited: the queue can take minutes and the caller only needs to know
+  // it began. See sessionStartQueue.ts for why sessions are not started at once.
+  startAllInProgress = true;
+  startWithLimit(
+    allSessions,
+    (session) => new CreateSessionUtil().opendata(req, session),
+    {
+      concurrency: START_CONCURRENCY,
+      slotTimeoutMs: START_SLOT_TIMEOUT_MS,
+      onError: (session, error) =>
+        req.logger.error(`[${session}] failed to start: ${error}`),
+      onSlotTimeout: (session) =>
+        req.logger.warn(
+          `[${session}] still starting after ${START_SLOT_TIMEOUT_MS}ms; starting the next session alongside it`
+        ),
+    }
+  )
+    .then(() => req.logger.info('All stored sessions have been started'))
+    .finally(() => {
+      startAllInProgress = false;
+    });
 
   return await res
     .status(201)
@@ -177,8 +215,9 @@ export async function showAllSessions(
 
   const arr: any = [];
 
+  // Must return: without it a wrong secret still got the full session list.
   if (tokenDecrypt !== req.serverOptions.secretKey) {
-    res.status(400).json({
+    return res.status(400).json({
       response: false,
       message: 'The token is incorrect',
     });
@@ -188,7 +227,7 @@ export async function showAllSessions(
     arr.push({ session: item });
   });
 
-  res.status(200).json({ response: await getAllTokens(req) });
+  return res.status(200).json({ response: await getAllTokens(req) });
 }
 
 export async function startSession(req: Request, res: Response): Promise<any> {
