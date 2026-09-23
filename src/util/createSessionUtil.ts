@@ -20,6 +20,7 @@ import { download } from '../controller/sessionController';
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
+import { recordActivity } from './sessionActivity';
 import { clearStaleChromiumLocks } from './sessionPaths';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
@@ -301,6 +302,7 @@ export default class CreateSessionUtil {
 
   async listenMessages(client: WhatsAppServer, req: Request) {
     await client.onMessage(async (message: any) => {
+      recordActivity(client.session);
       eventEmitter.emit(`mensagem-${client.session}`, client, message);
       callWebHook(client, req, 'onmessage', message);
       if (message.type === 'location')
@@ -310,6 +312,7 @@ export default class CreateSessionUtil {
     });
 
     await client.onAnyMessage(async (message: any) => {
+      recordActivity(client.session);
       message.session = client.session;
 
       if (message.type === 'sticker') {

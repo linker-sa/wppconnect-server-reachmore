@@ -82,6 +82,31 @@ export function scanProcesses(
  * @param {Map<number, number[]>} children Parent/child map from `scanProcesses`.
  * @return {number} Summed PSS in kB (RSS where PSS is unavailable).
  */
+/**
+ * Per-session Chromium memory, in MB, keyed by session name.
+ *
+ * One procfs pass shared across all sessions (the child map is reused), so it
+ * is cheap enough to call on a short interval. A session whose browser is not
+ * running (still starting, closed) simply does not appear.
+ *
+ * @param {string} procRoot Mount point of procfs; overridable for tests.
+ * @param {string} profileBase Directory the session profiles live in.
+ * @return {Map<string, number>} session name -> resident MB (PSS).
+ */
+export function perSessionMemoryMb(
+  procRoot = '/proc',
+  profileBase = userDataDirBase
+): Map<string, number> {
+  const { children, browsers } = scanProcesses(procRoot, profileBase);
+  const out = new Map<string, number>();
+  for (const [session, pid] of browsers)
+    out.set(
+      session,
+      Math.round(processTreeMemoryKb(pid, procRoot, children) / 1024)
+    );
+  return out;
+}
+
 export function processTreeMemoryKb(
   rootPid: number,
   procRoot = '/proc',
