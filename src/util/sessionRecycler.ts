@@ -177,7 +177,7 @@ export function startSessionRecycler(
 
   let recycling = false;
   const clients = deps.clients ?? clientsArray;
-  const memoryOf = deps.memoryOf ?? (() => perSessionMemoryMb());
+  const memoryOf = deps.memoryOf ?? (() => perSessionMemoryMb(clients));
   const idleOf = deps.idleOf ?? ((s: string) => msSinceActivity(s));
   const now = deps.now ?? Date.now;
 

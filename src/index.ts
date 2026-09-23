@@ -128,7 +128,7 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     logger.info(`WPPConnect-Server version: ${version}`);
 
     if (serverOptions.startAllSession) startAllSessions(serverOptions, logger);
-    startResourceMonitor(logger);
+    startResourceMonitor(logger, clientsArray);
     installGracefulShutdown(clientsArray as any, logger);
     startSessionRecycler({
       logger,

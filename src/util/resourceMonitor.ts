@@ -83,22 +83,58 @@ export function scanProcesses(
  * @return {number} Summed PSS in kB (RSS where PSS is unavailable).
  */
 /**
+ * The root Chromium PID of a wppconnect client, or null.
+ *
+ * Taken straight from the browser handle (`client.page.browser().process()`),
+ * the same source the library's own `getPID()` uses. This is far more reliable
+ * than matching `--user-data-dir` in /proc cmdlines: on some builds (observed
+ * on the Railway Alpine image) Chromium rewrites the main process's cmdline
+ * and the profile match finds nothing.
+ *
+ * @param {any} client A clientsArray entry.
+ * @return {number | null} The browser PID, or null if not running.
+ */
+export function browserPid(client: any): number | null {
+  try {
+    const pid = client?.page?.browser?.()?.process?.()?.pid;
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Per-session Chromium memory, in MB, keyed by session name.
  *
- * One procfs pass shared across all sessions (the child map is reused), so it
- * is cheap enough to call on a short interval. A session whose browser is not
- * running (still starting, closed) simply does not appear.
+ * Roots come from the live client objects (reliable), and each root's whole
+ * process tree is summed via the /proc parent map. A session with no running
+ * browser (still starting, closed) is skipped. When `clients` is omitted it
+ * falls back to the profile-dir scan (used by tests).
  *
+ * @param {Record<string, any>} clients The server's `clientsArray`.
  * @param {string} procRoot Mount point of procfs; overridable for tests.
- * @param {string} profileBase Directory the session profiles live in.
  * @return {Map<string, number>} session name -> resident MB (PSS).
  */
 export function perSessionMemoryMb(
-  procRoot = '/proc',
-  profileBase = userDataDirBase
+  clients?: Record<string, any>,
+  procRoot = '/proc'
 ): Map<string, number> {
-  const { children, browsers } = scanProcesses(procRoot, profileBase);
   const out = new Map<string, number>();
+  const { children, browsers } = scanProcesses(procRoot);
+
+  if (clients) {
+    for (const [session, client] of Object.entries(clients)) {
+      const pid = browserPid(client);
+      if (pid === null) continue;
+      out.set(
+        session,
+        Math.round(processTreeMemoryKb(pid, procRoot, children) / 1024)
+      );
+    }
+    return out;
+  }
+
+  // Fallback: attribute by profile dir (no client objects available).
   for (const [session, pid] of browsers)
     out.set(
       session,
@@ -170,20 +206,22 @@ export function containerMemory(
  * @return {string} The log line.
  */
 export function resourceSummary({
+  clients,
   procRoot = '/proc',
   cgroupRoot = '/sys/fs/cgroup',
   selfCgroup = '/proc/self/cgroup',
   selfPid = process.pid,
-  profileBase = userDataDirBase,
+}: {
+  clients?: Record<string, any>;
+  procRoot?: string;
+  cgroupRoot?: string;
+  selfCgroup?: string;
+  selfPid?: number;
 } = {}): string {
-  const { children, browsers } = scanProcesses(procRoot, profileBase);
-  // Full session names: truncated names have been misread before.
-  const perSession = [...browsers.entries()]
+  const perSession = [...perSessionMemoryMb(clients, procRoot).entries()]
+    // Full session names: truncated names have been misread before.
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(
-      ([session, pid]) =>
-        `${session} ${mb(processTreeMemoryKb(pid, procRoot, children) * 1024)}`
-    );
+    .map(([session, mb]) => `${session} ${mb} MB`);
 
   const container = containerMemory(cgroupRoot, selfCgroup);
   const parts = [
@@ -200,22 +238,15 @@ export function resourceSummary({
   return `[resources] ${parts.join(' · ')}`;
 }
 
-/**
- * Start logging the summary every `intervalMs`.
- *
- * @param {{ info: (message: string) => unknown }} logger Where to log.
- * @param {number} intervalMs Period; 0 disables.
- * @return {NodeJS.Timeout | null} The timer, unref'd so it never holds the
- *   process open.
- */
 export function startResourceMonitor(
   logger: { info: (message: string) => unknown },
+  clients?: Record<string, any>,
   intervalMs = RESOURCE_LOG_INTERVAL_MS
 ): NodeJS.Timeout | null {
   if (!(intervalMs > 0)) return null;
   const timer = setInterval(() => {
     try {
-      logger.info(resourceSummary());
+      logger.info(resourceSummary({ clients }));
     } catch {
       // Monitoring must never be the thing that breaks the server.
     }
@@ -224,16 +255,6 @@ export function startResourceMonitor(
   return timer;
 }
 
-/**
- * The profile directory of a Chromium *browser* process (its
- * `--user-data-dir`); the session is its last path segment. Renderer, GPU and
- * zygote children carry `--type=` and are skipped here; they are counted
- * through the browser's tree.
- *
- * Chromium rewrites its own /proc/<pid>/cmdline into one space-joined string
- * (process title), so the usual NUL-separated argv cannot be relied on. Both
- * forms are normalised to spaces; profile paths never contain spaces here.
- */
 function browserProfile(procRoot: string, pid: number): string | null {
   const raw = safeRead(path.join(procRoot, String(pid), 'cmdline'));
   if (!raw) return null;
