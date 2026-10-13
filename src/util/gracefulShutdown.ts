@@ -1,4 +1,4 @@
-import { scanProcesses } from './resourceMonitor';
+import { browserPid, scanProcesses } from './resourceMonitor';
 import { userDataDirBase } from './sessionPaths';
 
 /**
@@ -48,6 +48,94 @@ type Logger = {
   warn: (message: string) => unknown;
 };
 
+/** How long to give Chromium to exit after close() before asking again. */
+export const EXIT_GRACE_MS = 2000;
+
+/** The bits of a ChildProcess this module needs. */
+export interface BrowserProcess {
+  exitCode: number | null;
+  signalCode: string | null;
+  once(event: 'exit', listener: () => void): unknown;
+  removeListener?(event: 'exit', listener: () => void): unknown;
+}
+
+function hasExited(proc: BrowserProcess | null): boolean {
+  return !proc || proc.exitCode !== null || proc.signalCode !== null;
+}
+
+/**
+ * Wait until a browser process has exited.
+ *
+ * @param {BrowserProcess | null} proc The process (null counts as exited).
+ * @param {number} ms Longest to wait.
+ * @return {Promise<boolean>} true if it exited within `ms`.
+ */
+export function waitForExit(
+  proc: BrowserProcess | null,
+  ms: number
+): Promise<boolean> {
+  if (hasExited(proc)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      proc!.removeListener?.('exit', onExit);
+      resolve(hasExited(proc));
+    }, Math.max(0, ms));
+    proc!.once('exit', onExit);
+  });
+}
+
+/**
+ * Close one session and wait for its Chromium process to actually exit.
+ *
+ * wppconnect's close() swallows errors from browser.close(), so returning
+ * from it does not mean Chromium is gone. On staging it returned in 28-97ms
+ * and the next boot still found the profile's Singleton* locks (2026-09-30,
+ * 2026-10-08): Node had exited and Chromium was killed mid-shutdown. Locally
+ * the same close() takes ~140ms and leaves no locks. So the browser handle is
+ * taken before close(), the process is awaited, and if it is still running
+ * after EXIT_GRACE_MS it is asked to close once more.
+ *
+ * @param {string} session Session name, for logs.
+ * @param {any} client A connected wppconnect client.
+ * @param {Logger} logger Where to log.
+ * @param {number} deadline Epoch ms after which to stop waiting.
+ * @return {Promise<boolean>} true if the browser exited.
+ */
+export async function closeAndWaitForExit(
+  session: string,
+  client: any,
+  logger: Logger,
+  deadline: number
+): Promise<boolean> {
+  const started = Date.now();
+  let browser: any = null;
+  let proc: BrowserProcess | null = null;
+  try {
+    browser = client.page.browser();
+    proc = browser?.process?.() ?? null;
+  } catch {
+    // No handle: fall back to close() alone.
+  }
+
+  await client.close();
+
+  const left = () => deadline - Date.now();
+  let exited = await waitForExit(proc, Math.min(EXIT_GRACE_MS, left()));
+  if (!exited && browser) {
+    await browser.close().catch(() => null);
+    exited = await waitForExit(proc, left());
+  }
+
+  const ms = Date.now() - started;
+  if (exited) logger.info(`[${session}] browser exited in ${ms}ms`);
+  else logger.warn(`[${session}] browser still running after ${ms}ms`);
+  return exited;
+}
+
 /**
  * Close every connected client, bounded by `timeoutMs`.
  *
@@ -66,11 +154,12 @@ export async function closeAllSessions(
   );
   const closed: string[] = [];
 
+  const deadline = Date.now() + timeoutMs;
   const closing = Promise.all(
     closable.map(async ([session, client]) => {
       try {
-        await client.close();
-        closed.push(session);
+        if (await closeAndWaitForExit(session, client, logger, deadline))
+          closed.push(session);
       } catch (error) {
         logger.warn(`[${session}] did not close cleanly: ${error}`);
       }
@@ -99,18 +188,28 @@ export async function closeAllSessions(
 export function killRemainingBrowsers(
   logger: Logger,
   {
+    clients = {},
     procRoot = '/proc',
     profileBase = userDataDirBase,
     kill = (pid: number, signal: NodeJS.Signals) => process.kill(pid, signal),
   }: {
+    clients?: Record<string, any>;
     procRoot?: string;
     profileBase?: string;
     kill?: (pid: number, signal: NodeJS.Signals) => unknown;
   } = {}
 ): string[] {
   const killed: string[] = [];
-  const { browsers } = scanProcesses(procRoot, profileBase);
-  for (const [session, pid] of browsers) {
+  // Client PIDs first: the profile-dir scan reads /proc cmdlines, which
+  // Chromium rewrites on the Railway image, so on its own it finds nothing.
+  const targets = new Map<string, number>();
+  for (const [session, client] of Object.entries(clients)) {
+    const pid = browserPid(client);
+    if (pid !== null) targets.set(session, pid);
+  }
+  for (const [session, pid] of scanProcesses(procRoot, profileBase).browsers)
+    if (!targets.has(session)) targets.set(session, pid);
+  for (const [session, pid] of targets) {
     try {
       // puppeteer launches each browser detached, as its own process group,
       // so the negative pid takes the renderers and GPU process with it.
@@ -137,7 +236,7 @@ interface ShutdownOptions {
   timeoutMs?: number;
   exit?: (code: number) => void;
   signals?: NodeJS.Signals[];
-  killLeftovers?: (logger: Logger) => unknown;
+  killLeftovers?: (logger: Logger, clients: Record<string, any>) => unknown;
 }
 
 /**
@@ -155,7 +254,8 @@ export function installGracefulShutdown(
     timeoutMs = SHUTDOWN_TIMEOUT_MS,
     exit = (code) => process.exit(code),
     signals = ['SIGTERM', 'SIGINT'],
-    killLeftovers = killRemainingBrowsers,
+    killLeftovers = (log, sessions) =>
+      killRemainingBrowsers(log, { clients: sessions }),
   }: ShutdownOptions = {}
 ): (signal: string) => Promise<void> {
   let shuttingDown = false;
@@ -179,7 +279,7 @@ export function installGracefulShutdown(
         (closed.length ? `: ${closed.join(', ')}` : '')
     );
     try {
-      killLeftovers(logger);
+      killLeftovers(logger, clients);
     } finally {
       exit(0);
     }
