@@ -47,7 +47,7 @@ export function contactToArray(
   number: any,
   isGroup?: boolean,
   isNewsletter?: boolean,
-  isLid?: boolean,
+  isLid?: boolean
 ) {
   const localArr: any = [];
 
@@ -62,7 +62,8 @@ export function contactToArray(
     const explicit = value.match(/@(g\.us|newsletter|lid|c\.us)$/i);
     if (explicit) {
       const id = value.split('@')[0].replace(/[^\w ]/g, '');
-      if (id !== '') (localArr as any).push(`${id}@${explicit[1].toLowerCase()}`);
+      if (id !== '')
+        (localArr as any).push(`${id}@${explicit[1].toLowerCase()}`);
       return;
     }
 
@@ -121,11 +122,86 @@ export function groupNameToArray(group: any) {
   return localArr;
 }
 
+/**
+ * Deliver one webhook, retrying failures that are worth retrying.
+ *
+ * This used to be a bare `api.post(...).catch(log)` — fire-and-forget. A single
+ * failed POST meant the message was gone for good: wppconnect never redelivers,
+ * nothing is queued, and the only trace was one warn line. A cold start on the
+ * receiver, a transient 5xx or a network blip silently cost a real customer
+ * message, which is impossible to diagnose after the fact because the receiving
+ * side has no record that anything was ever sent.
+ *
+ * Retried: no response at all (connection reset, timeout, DNS), 429, and 5xx.
+ * NOT retried: other 4xx. Those are deterministic rejections — a 403 from
+ * webhook authentication will fail identically every time, so hammering it adds
+ * load without saving the message. Those surface as an error instead.
+ *
+ * Runs detached from the caller (nothing awaits callWebHook), so the backoff
+ * never delays event handling.
+ *
+ * @param {any} webhook Destination URL.
+ * @param {any} data Event payload.
+ * @param {Request} req Express request, used for its logger.
+ * @return {Promise<boolean>} True when the webhook was accepted.
+ */
+export async function postWebhookWithRetry(
+  webhook: any,
+  data: any,
+  req: Request
+): Promise<boolean> {
+  const MAX_ATTEMPTS = 5;
+  const session = data?.session ?? null;
+  const event = data?.event ?? null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await api.post(webhook, data);
+      if (attempt > 1)
+        req.logger.info(
+          `Webhook delivered on attempt ${attempt} (event=${event} session=${session}).`
+        );
+      return true;
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const retryable = status === undefined || status === 429 || status >= 500;
+
+      if (!retryable) {
+        req.logger.error(
+          `Webhook REJECTED with ${status} — not retrying, message dropped ` +
+            `(event=${event} session=${session}).`
+        );
+        return false;
+      }
+      if (attempt === MAX_ATTEMPTS) {
+        // The last line before a message is lost for good. Logged at error so
+        // it is findable, and carries the identifiers needed to chase it.
+        req.logger.error(
+          `Webhook FAILED after ${MAX_ATTEMPTS} attempts — message lost ` +
+            `(event=${event} session=${session} status=${
+              status ?? 'no-response'
+            }).`
+        );
+        return false;
+      }
+      // Exponential backoff with jitter, so a receiver that is restarting is not
+      // hit by every in-flight event at the same instant.
+      const delay = 2 ** (attempt - 1) * 500 + Math.floor(Math.random() * 250);
+      req.logger.warn(
+        `Error calling Webhook (attempt ${attempt}/${MAX_ATTEMPTS}, ` +
+          `status=${status ?? 'no-response'}) — retrying in ${delay}ms.`
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  return false;
+}
+
 export async function callWebHook(
   client: any,
   req: Request,
   event: any,
-  data: any,
+  data: any
 ) {
   const webhook =
     client?.config.webhook || req.serverOptions.webhook.url || false;
@@ -147,18 +223,16 @@ export async function callWebHook(
       data = Object.assign({ event: event, session: client.session }, data);
       if (req.serverOptions.mapper.enable)
         data = await convert(req.serverOptions.mapper.prefix, data);
-      api
-        .post(webhook, data)
-        .then(() => {
-          try {
-            const events = ['unreadmessages', 'onmessage'];
-            if (events.includes(event) && req.serverOptions.webhook.readMessage)
-              client.sendSeen(chatId);
-          } catch (e) {}
-        })
-        .catch((e) => {
-          req.logger.warn('Error calling Webhook.', e);
-        });
+      // Deliberately not awaited: delivery (and its backoff) must not hold up
+      // the event handler. `sendSeen` still runs only on a real success.
+      postWebhookWithRetry(webhook, data, req).then((delivered) => {
+        if (!delivered) return;
+        try {
+          const events = ['unreadmessages', 'onmessage'];
+          if (events.includes(event) && req.serverOptions.webhook.readMessage)
+            client.sendSeen(chatId);
+        } catch (e) {}
+      });
     } catch (e) {
       req.logger.error(e);
     }
@@ -210,7 +284,7 @@ export async function autoDownload(client: any, req: any, message: any) {
             new CreateBucketCommand({
               Bucket: bucketName,
               ObjectOwnership: 'ObjectWriter',
-            }),
+            })
           );
           await s3Client.send(
             new PutPublicAccessBlockCommand({
@@ -220,7 +294,7 @@ export async function autoDownload(client: any, req: any, message: any) {
                 IgnorePublicAcls: false,
                 BlockPublicPolicy: false,
               },
-            }),
+            })
           );
         }
 
@@ -231,7 +305,7 @@ export async function autoDownload(client: any, req: any, message: any) {
             Body: buffer,
             ContentType: message.mimetype,
             ACL: 'public-read',
-          }),
+          })
         );
 
         message.fileUrl = `https://${bucketName}.s3.amazonaws.com/${fileName}`;
@@ -247,7 +321,7 @@ export async function autoDownload(client: any, req: any, message: any) {
 export async function startAllSessions(config: any, logger: any) {
   try {
     await api.post(
-      `${config.host}:${config.port}/api/${config.secretKey}/start-all`,
+      `${config.host}:${config.port}/api/${config.secretKey}/start-all`
     );
   } catch (e) {
     logger.error(e);
@@ -298,10 +372,10 @@ async function archive(client: any, req: any) {
         if (DaysBetween(date) > req.serverOptions.archive.daysToArchive) {
           await client.archiveChat(
             chats[i].id.id || chats[i].id._serialized,
-            true,
+            true
           );
           await sleep(
-            Math.floor(Math.random() * req.serverOptions.archive.waitTime + 1),
+            Math.floor(Math.random() * req.serverOptions.archive.waitTime + 1)
           );
         }
       }
@@ -321,12 +395,12 @@ function DaysBetween(StartDate: Date) {
   const start = Date.UTC(
     endDate.getFullYear(),
     endDate.getMonth(),
-    endDate.getDate(),
+    endDate.getDate()
   );
   const end = Date.UTC(
     StartDate.getFullYear(),
     StartDate.getMonth(),
-    StartDate.getDate(),
+    StartDate.getDate()
   );
 
   // so it's safe to divide by 24 hours
