@@ -22,6 +22,7 @@ import { consumeApiSend, fingerprintOfMessage } from './apiSendRegistry';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import { recordActivity } from './sessionActivity';
+import { trackSessionStatus } from './sessionParking';
 import { clearStaleChromiumLocks } from './sessionPaths';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
@@ -125,6 +126,9 @@ export default class CreateSessionUtil {
               req.logger.info(`[${session}] ${percent}% - ${message}`);
             },
             statusFind: (statusFind: StatusFind) => {
+              // Before the block below: its client.close() throws on a session
+              // that never connected, which skips everything after it.
+              trackSessionStatus(session, statusFind, req.logger);
               try {
                 eventEmitter.emit(
                   `status-${client.session}`,

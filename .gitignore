@@ -7,6 +7,8 @@
 /log
 /obj/Debug
 /tokens
+/inactive
+/logged-in
 /uploads
 /WhatsAppImages
 /wppconnect-server.njsproj
