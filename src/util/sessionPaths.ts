@@ -19,6 +19,9 @@ import path from 'path';
  */
 const base = (process.env.SESSION_DATA_DIR || '').trim();
 
+/** Root of all session state (the mounted volume when SESSION_DATA_DIR is set). */
+export const sessionDataDir = base || '.';
+
 /** Directory holding `<session>.data.json` token files. */
 export const tokensDir = base ? path.join(base, 'tokens') : './tokens';
 
