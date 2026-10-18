@@ -19,10 +19,12 @@ import { sessionDataDir, tokenFilePath, userDataDirBase } from './sessionPaths';
  * so a linked session that later shows a QR (the phone unlinked) is left
  * alone. PARK_UNLINKED_SESSIONS=false turns parking off.
  */
-export const loggedInDir = path.join(sessionDataDir, 'logged-in');
+export const loggedInDir = path.join(sessionDataDir, 'logins');
 export const inactiveDir = path.join(sessionDataDir, 'inactive');
 
-const LOGGED_IN = new Set(['isLogged', 'inChat', 'qrReadSuccess']);
+// Not inChat: wppconnect emits it while an UNPAIRED session's page loads
+// (staging 2026-10-18: "Session Unpaired", then inChat 6s later, then the QR).
+const LOGGED_IN = new Set(['isLogged', 'qrReadSuccess']);
 // Only the auto-close timer at the QR screen is definitive. qrReadError can be
 // a failed check on a session that did pair.
 const GAVE_UP = new Set(['autocloseCalled']);

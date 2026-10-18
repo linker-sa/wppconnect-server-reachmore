@@ -71,7 +71,7 @@ describe('parkSession', () => {
 
 describe('logged-in marker', () => {
   it('remembers a session that logged in', () => {
-    const dir = path.join(root, 'logged-in');
+    const dir = path.join(root, 'logins');
     expect(hasLoggedIn('wpp_t_1', dir)).toBe(false);
     markLoggedIn('wpp_t_1', dir);
     expect(hasLoggedIn('wpp_t_1', dir)).toBe(true);
@@ -112,6 +112,13 @@ describe('trackSessionStatus', () => {
     expect(t.marked.has('wpp_a')).toBe(true);
     t.feed('wpp_a', 'autocloseCalled', 'browserClose');
     expect(t.parked).toEqual([]);
+  });
+
+  it('still parks an unpaired session that flashed inChat while loading', () => {
+    const t = tracker();
+    t.feed('wpp_a', 'inChat', 'notLogged', 'autocloseCalled', 'browserClose');
+    expect(t.marked.has('wpp_a')).toBe(false);
+    expect(t.parked).toEqual(['wpp_a']);
   });
 
   it('does not park on a slow sync after a scan', () => {
