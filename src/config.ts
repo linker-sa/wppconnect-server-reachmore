@@ -24,7 +24,8 @@ export default {
     onPollResponse: true,
     onRevokedMessage: true,
     onLabelUpdated: true,
-    onSelfMessage: false,
+    // Phone replies only — the receiver reads them as a human takeover.
+    onSelfMessage: true,
     ignore: ['status@broadcast'],
   },
   websocket: {
