@@ -18,6 +18,7 @@ import { Request } from 'express';
 
 import { download } from '../controller/sessionController';
 import { WhatsAppServer } from '../types/WhatsAppServer';
+import { consumeApiSend, fingerprintOfMessage } from './apiSendRegistry';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import { recordActivity } from './sessionActivity';
@@ -327,7 +328,13 @@ export default class CreateSessionUtil {
       }
 
       req.io.emit('received-message', { response: message });
-      if (req.serverOptions.webhook.onSelfMessage && message.fromMe)
+      // Only what a human sent from the phone or another linked device; our own
+      // API sends are dropped here (see apiSendRegistry).
+      if (
+        req.serverOptions.webhook.onSelfMessage &&
+        message.fromMe &&
+        !consumeApiSend(client.session, fingerprintOfMessage(message))
+      )
         callWebHook(client, req, 'onselfmessage', message);
     });
 
