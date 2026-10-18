@@ -1,4 +1,4 @@
-import { browserPid, scanProcesses } from './resourceMonitor';
+import { browserPid, liveGroupMembers, scanProcesses } from './resourceMonitor';
 import { userDataDirBase } from './sessionPaths';
 
 /**
@@ -53,10 +53,60 @@ export const EXIT_GRACE_MS = 2000;
 
 /** The bits of a ChildProcess this module needs. */
 export interface BrowserProcess {
+  pid?: number;
   exitCode: number | null;
   signalCode: string | null;
   once(event: 'exit', listener: () => void): unknown;
   removeListener?(event: 'exit', listener: () => void): unknown;
+}
+
+/** How often to look for the browser's process group while it shuts down. */
+const GROUP_POLL_MS = 100;
+
+/**
+ * Is anything in this process group still running? Reads procfs so zombies do
+ * not count (see liveGroupMembers); falls back to signal 0 where procfs is
+ * missing.
+ *
+ * @param {number} pgid Process group id.
+ * @param {string} procRoot procfs root (overridable for tests).
+ * @return {boolean} true while a member is running.
+ */
+export function groupRunning(pgid: number, procRoot = '/proc'): boolean {
+  const live = liveGroupMembers(pgid, procRoot);
+  if (live) return live.length > 0;
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error: any) {
+    return error?.code === 'EPERM';
+  }
+}
+
+/**
+ * Wait until no process of the browser's group is running.
+ *
+ * The launched process exiting is not enough: on staging the browser "exited
+ * in 205ms", yet shutdown then killed its group and the next boot found the
+ * profile's Singleton* locks.
+ *
+ * @param {number | null} pgid Process group id (null counts as gone).
+ * @param {number} ms Longest to wait.
+ * @param {(pgid: number) => boolean} running Probe (overridable for tests).
+ * @return {Promise<boolean>} true if the group was gone within `ms`.
+ */
+export async function waitForGroupExit(
+  pgid: number | null,
+  ms: number,
+  running: (pgid: number) => boolean = groupRunning
+): Promise<boolean> {
+  if (!pgid) return true;
+  const until = Date.now() + Math.max(0, ms);
+  while (running(pgid)) {
+    if (Date.now() >= until) return false;
+    await new Promise((resolve) => setTimeout(resolve, GROUP_POLL_MS));
+  }
+  return true;
 }
 
 function hasExited(proc: BrowserProcess | null): boolean {
@@ -109,7 +159,8 @@ export async function closeAndWaitForExit(
   session: string,
   client: any,
   logger: Logger,
-  deadline: number
+  deadline: number,
+  groupRunningProbe: (pgid: number) => boolean = groupRunning
 ): Promise<boolean> {
   const started = Date.now();
   let browser: any = null;
@@ -130,10 +181,18 @@ export async function closeAndWaitForExit(
     exited = await waitForExit(proc, left());
   }
 
+  const groupGone =
+    exited &&
+    (await waitForGroupExit(proc?.pid ?? null, left(), groupRunningProbe));
+
   const ms = Date.now() - started;
-  if (exited) logger.info(`[${session}] browser exited in ${ms}ms`);
+  if (groupGone) logger.info(`[${session}] browser group exited in ${ms}ms`);
+  else if (exited)
+    logger.warn(
+      `[${session}] browser exited but its group is still running after ${ms}ms`
+    );
   else logger.warn(`[${session}] browser still running after ${ms}ms`);
-  return exited;
+  return groupGone;
 }
 
 /**
@@ -192,11 +251,13 @@ export function killRemainingBrowsers(
     procRoot = '/proc',
     profileBase = userDataDirBase,
     kill = (pid: number, signal: NodeJS.Signals) => process.kill(pid, signal),
+    running = (pgid: number) => groupRunning(pgid, procRoot),
   }: {
     clients?: Record<string, any>;
     procRoot?: string;
     profileBase?: string;
     kill?: (pid: number, signal: NodeJS.Signals) => unknown;
+    running?: (pgid: number) => boolean;
   } = {}
 ): string[] {
   const killed: string[] = [];
@@ -210,6 +271,8 @@ export function killRemainingBrowsers(
   for (const [session, pid] of scanProcesses(procRoot, profileBase).browsers)
     if (!targets.has(session)) targets.set(session, pid);
   for (const [session, pid] of targets) {
+    // Only zombies left (or nothing): there is nothing to kill.
+    if (!running(pid)) continue;
     try {
       // puppeteer launches each browser detached, as its own process group,
       // so the negative pid takes the renderers and GPU process with it.
