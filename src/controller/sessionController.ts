@@ -294,7 +294,15 @@ export async function closeSession(req: Request, res: Response): Promise<any> {
    */
   const session = req.session;
   try {
-    if ((clientsArray as any)[session].status === null) {
+    const entry = (clientsArray as any)[session];
+    // Already gone: logout-session (which the receiver calls first) removed the
+    // entry, or the phone unlinked and the session was dropped. Nothing is
+    // left to close, so it is not an error.
+    if (
+      !entry ||
+      entry.status == null ||
+      typeof req.client?.close !== 'function'
+    ) {
       return await res
         .status(200)
         .json({ status: true, message: 'Session successfully closed' });
@@ -335,7 +343,17 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
    */
   try {
     const session = req.session;
-    await req.client.logout();
+    try {
+      if (typeof req.client?.logout === 'function') await req.client.logout();
+    } catch (error) {
+      // The phone unlinked first: the page is reloading and logout() throws
+      // ("InvocationInterface was not inited"). The device is unpaired either
+      // way, so finish the removal; close the browser so it is not orphaned.
+      req.logger.warn(
+        `[${session}] logout failed, removing it anyway: ${error}`
+      );
+      await req.client?.close?.().catch(() => null);
+    }
     deleteSessionOnArray(req.session);
 
     setTimeout(async () => {
@@ -360,10 +378,13 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
       }
 
       req.io.emit('whatsapp-status', false);
-      callWebHook(req.client, req, 'logoutsession', {
-        message: `Session: ${session} logged out`,
-        connected: false,
-      });
+      // callWebHook reads client.config; with no client this would throw inside
+      // a timer, an unhandled rejection that takes the whole server down.
+      if (req.client)
+        callWebHook(req.client, req, 'logoutsession', {
+          message: `Session: ${session} logged out`,
+          connected: false,
+        });
 
       return await res
         .status(200)
