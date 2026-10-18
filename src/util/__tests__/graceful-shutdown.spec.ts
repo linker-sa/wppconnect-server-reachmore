@@ -149,7 +149,12 @@ describe('killRemainingBrowsers', () => {
   const fakeProcess = (pid: number, ppid: number, cmdline: string) => {
     const dir = path.join(proc, String(pid));
     fs.mkdirSync(dir);
-    fs.writeFileSync(path.join(dir, 'stat'), `${pid} (chromium) S ${ppid} 0`);
+    // pgrp: a browser leads its own group, its children join it
+    const pgrp = ppid === 1 ? pid : ppid;
+    fs.writeFileSync(
+      path.join(dir, 'stat'),
+      `${pid} (chromium) S ${ppid} ${pgrp} 0`
+    );
     fs.writeFileSync(path.join(dir, 'cmdline'), cmdline);
   };
 

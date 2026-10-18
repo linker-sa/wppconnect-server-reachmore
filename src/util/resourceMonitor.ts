@@ -255,6 +255,39 @@ export function startResourceMonitor(
   return timer;
 }
 
+/**
+ * PIDs in a process group that are still running, or null when procfs cannot
+ * be read (not Linux).
+ *
+ * Zombies are left out. Node is PID 1 in the container and never reaps the
+ * Chromium children it inherits, so they linger as zombies after the browser
+ * exits, and `kill(-pgid, 0)` keeps answering for a group that is already
+ * dead.
+ *
+ * @param {number} pgid Process group id (puppeteer starts each browser as one).
+ * @param {string} procRoot procfs root (overridable for tests).
+ * @return {number[] | null} Running members.
+ */
+export function liveGroupMembers(
+  pgid: number,
+  procRoot = '/proc'
+): number[] | null {
+  const entries = safeReaddir(procRoot);
+  if (!entries.length) return null;
+  const live: number[] = [];
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const stat = safeRead(path.join(procRoot, entry, 'stat'));
+    if (!stat) continue;
+    // state, ppid, pgrp follow the last ')'
+    const [state, , pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    // The leader itself counts even when it is not a group leader.
+    const member = Number(pgrp) === pgid || Number(entry) === pgid;
+    if (member && state !== 'Z' && state !== 'X') live.push(Number(entry));
+  }
+  return live;
+}
+
 function browserProfile(procRoot: string, pid: number): string | null {
   const raw = safeRead(path.join(procRoot, String(pid), 'cmdline'));
   if (!raw) return null;
