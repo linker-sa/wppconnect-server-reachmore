@@ -36,6 +36,7 @@ import * as HealthCheck from '../middleware/healthCheck';
 import * as prometheusRegister from '../middleware/instrumentation';
 import statusConnection from '../middleware/statusConnection';
 import swaggerDocument from '../swagger.json';
+import { rememberApiSend } from '../util/apiSendRegistry';
 
 const upload = multer(uploadConfig as any) as any;
 const routes: Router = Router();
@@ -113,6 +114,7 @@ routes.post(
   '/api/:session/send-message',
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendMessage
 );
 routes.post(
@@ -126,6 +128,7 @@ routes.post(
   upload.single('file'),
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendFile
 );
 routes.post(
@@ -146,6 +149,7 @@ routes.post(
   '/api/:session/send-reply',
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.replyMessage
 );
 routes.post(
@@ -153,24 +157,28 @@ routes.post(
   upload.single('file'),
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendFile
 );
 routes.post(
   '/api/:session/send-file-base64',
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendFile
 );
 routes.post(
   '/api/:session/send-voice',
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendVoice
 );
 routes.post(
   '/api/:session/send-voice-base64',
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendVoice64
 );
 routes.get(
@@ -194,6 +202,7 @@ routes.post(
   '/api/:session/send-location',
   verifyToken,
   statusConnection,
+  rememberApiSend,
   MessageController.sendLocation
 );
 routes.post(

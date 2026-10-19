@@ -21,7 +21,7 @@ import { contactToArray } from '../util/functions';
 export default async function statusConnection(
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) {
   try {
     const numbers: any = [];
@@ -32,7 +32,7 @@ export default async function statusConnection(
         req.body.phone || [],
         req.body.isGroup,
         req.body.isNewsletter,
-        req.body.isLid,
+        req.body.isLid
       );
       let index = 0;
       for (const contact of localArr) {
