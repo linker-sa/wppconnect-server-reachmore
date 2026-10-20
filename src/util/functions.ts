@@ -43,6 +43,19 @@ if (config?.websocket?.uploadS3) {
   crypto = config.websocket.uploadS3 ? Crypto : null;
 }
 
+// Identifier suffixes the server is able to produce. A suffix supplied by the
+// caller is authoritative: WhatsApp already resolves LID identifiers, so
+// dropping it and re-deriving the domain rewrites them as phone numbers.
+const CONTACT_DOMAINS = ['c.us', 'g.us', 'lid', 'newsletter'];
+
+/**
+ * Splits an identifier into its local part and, when recognized, its domain.
+ */
+function splitContact(contact: string) {
+  const [local, domain] = contact.split('@');
+  return { local, domain: CONTACT_DOMAINS.includes(domain) ? domain : '' };
+}
+
 export function contactToArray(
   number: any,
   isGroup?: boolean,
@@ -50,40 +63,30 @@ export function contactToArray(
   isLid?: boolean
 ) {
   const localArr: any = [];
-
-  const pushContact = (raw: any) => {
-    const value = String(raw ?? '').trim();
-    if (value === '') return;
-
-    // Respect an explicit domain suffix supplied by the caller
-    // (e.g. "12345@lid", "12345@c.us", "12345@g.us", "12345@newsletter").
-    // Length-based guessing below is unreliable for LIDs, so an explicit
-    // suffix always wins.
-    const explicit = value.match(/@(g\.us|newsletter|lid|c\.us)$/i);
-    if (explicit) {
-      const id = value.split('@')[0].replace(/[^\w ]/g, '');
-      if (id !== '')
-        (localArr as any).push(`${id}@${explicit[1].toLowerCase()}`);
-      return;
-    }
-
-    const contact =
-      isGroup || isNewsletter
-        ? value.split('@')[0]
-        : value.split('@')[0]?.replace(/[^\w ]/g, '');
-    if (!contact || contact === '') return;
-
-    if (isGroup) (localArr as any).push(`${contact}@g.us`);
-    else if (isNewsletter) (localArr as any).push(`${contact}@newsletter`);
-    else if (isLid || contact.length >= 14)
-      (localArr as any).push(`${contact}@lid`);
-    else (localArr as any).push(`${contact}@c.us`);
-  };
-
-  const contacts = Array.isArray(number)
+  const arrContacts = Array.isArray(number)
     ? number
-    : String(number).split(/\s*[,;]\s*/g);
-  for (const contact of contacts) pushContact(contact);
+    : number.split(/\s*[,;]\s*/g);
+
+  for (const contact of arrContacts) {
+    const { local, domain } = splitContact(contact);
+    // Group and newsletter identifiers are numeric-only; other contacts also
+    // accept formatted numbers such as "+55 (11) 99999-9999".
+    const normalized =
+      isGroup || isNewsletter ? local : local?.replace(/[^\w ]/g, '');
+    if (normalized !== '') {
+      // An explicit flag wins, then a suffix the caller already provided, and
+      // only then the length heuristic that guesses LID from a bare number.
+      const suffix = isGroup
+        ? 'g.us'
+        : isNewsletter
+        ? 'newsletter'
+        : isLid
+        ? 'lid'
+        : // Fork: 14 digits is already a LID (a 2026-07 fix of ours; upstream says > 14).
+          domain || (normalized.length >= 14 ? 'lid' : 'c.us');
+      localArr.push(`${normalized}@${suffix}`);
+    }
+  }
 
   return localArr;
 }
@@ -203,8 +206,24 @@ export async function callWebHook(
   event: any,
   data: any
 ) {
-  const webhook =
-    client?.config.webhook || req.serverOptions.webhook.url || false;
+  const requestedWebhook = client?.config.webhook;
+  const configured = req.serverOptions.webhook;
+  // Fork: the allowlist applies only once WEBHOOK_ALLOWED_URLS is set. Our
+  // backend registers a URL per session and prod's carries its auth token in
+  // the query (?qrToken=), so an exact-match list would have to repeat it.
+  // When set, a session can select only destinations the operator configured.
+  const enforceAllowlist = (configured.allowedUrls || []).length > 0;
+  const webhook = !requestedWebhook
+    ? configured.url
+    : !enforceAllowlist
+    ? requestedWebhook
+    : [configured.url, ...(configured.allowedUrls || [])].find(
+        (url) => url === requestedWebhook
+      );
+  if (requestedWebhook && !webhook) {
+    req.logger.warn('Session webhook URL is not in the configured allowlist.');
+    return;
+  }
   if (webhook) {
     if (
       req.serverOptions.webhook?.ignore &&
@@ -227,11 +246,11 @@ export async function callWebHook(
       // the event handler. `sendSeen` still runs only on a real success.
       postWebhookWithRetry(webhook, data, req).then((delivered) => {
         if (!delivered) return;
-        try {
-          const events = ['unreadmessages', 'onmessage'];
-          if (events.includes(event) && req.serverOptions.webhook.readMessage)
-            client.sendSeen(chatId);
-        } catch (e) {}
+        const events = ['unreadmessages', 'onmessage'];
+        if (events.includes(event) && req.serverOptions.webhook.readMessage)
+          Promise.resolve(client.sendSeen(chatId)).catch((error: unknown) =>
+            req.logger.warn('Error marking webhook message as read.', error)
+          );
       });
     } catch (e) {
       req.logger.error(e);
@@ -242,11 +261,18 @@ export async function callWebHook(
 export async function autoDownload(client: any, req: any, message: any) {
   try {
     if (message && (message['mimetype'] || message.isMedia || message.isMMS)) {
-      const buffer = await client.decryptFile(message);
-      if (
+      const uploadS3 =
         req.serverOptions.webhook.uploadS3 ||
-        req.serverOptions?.websocket?.uploadS3
-      ) {
+        req.serverOptions?.websocket?.uploadS3;
+      // Inlined base64 grows the payload ~33% over the file size, so large
+      // media can exceed the receiver's body limit and the event is lost.
+      const maxSize = req.serverOptions?.webhook?.autoDownloadMaxSize;
+      if (!uploadS3 && maxSize > 0 && message.size > maxSize) {
+        message.autoDownloadSkipped = true;
+        return;
+      }
+      const buffer = await client.decryptFile(message);
+      if (uploadS3) {
         const hashName = crypto.randomBytes(24).toString('hex');
 
         if (

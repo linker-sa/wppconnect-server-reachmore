@@ -5,20 +5,13 @@ jest.mock('../../util/getAllTokens', () => ({
   __esModule: true,
   default: jest.fn(() => Promise.resolve([])),
 }));
-jest.mock('../../util/sessionUtil', () => ({
-  __esModule: true,
-  clientsArray: {},
-  deleteSessionOnArray: jest.fn((session: string) => {
-    delete jest.requireMock('../../util/sessionUtil').clientsArray[session];
-  }),
-}));
 jest.mock('../../util/functions', () => ({
   __esModule: true,
   ...jest.requireActual('../../util/functions'),
   callWebHook: jest.fn(),
 }));
 
-const { clientsArray } = jest.requireMock('../../util/sessionUtil') as {
+const { clientsArray } = jest.requireActual('../../util/sessionUtil') as {
   clientsArray: Record<string, any>;
 };
 const { callWebHook } = jest.requireMock('../../util/functions') as {
@@ -73,7 +66,7 @@ describe('close-session', () => {
     await closeSession(req('wpp_a', client), r);
     expect(client.close).toHaveBeenCalled();
     expect(r.status).toHaveBeenCalledWith(200);
-    expect(clientsArray.wpp_a).toEqual({ status: null });
+    expect(clientsArray.wpp_a).toBeUndefined();
   });
 });
 

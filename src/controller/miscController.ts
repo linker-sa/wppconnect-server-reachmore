@@ -16,12 +16,13 @@
 
 import { Request, Response } from 'express';
 import fs from 'fs';
+import path from 'path';
 
 import { logger } from '..';
 import config from '../config';
 import { backupSessions, restoreSessions } from '../util/manageSession';
 import { tokenFilePath } from '../util/sessionPaths';
-import { clientsArray } from '../util/sessionUtil';
+import { cleanupSession } from '../util/sessionUtil';
 
 export async function backupAllSessions(req: Request, res: Response) {
   /**
@@ -57,8 +58,12 @@ export async function backupAllSessions(req: Request, res: Response) {
 
   try {
     res.setHeader('Content-Type', 'application/zip');
-    res.send(await backupSessions(req));
+    await backupSessions(req);
   } catch (error) {
+    if (res.headersSent) {
+      req.logger.error(error);
+      return;
+    }
     res.status(500).json({
       status: false,
       message: 'Error on backup session',
@@ -164,20 +169,33 @@ export async function clearSessionData(req: Request, res: Response) {
         message: 'The token is incorrect',
       });
     }
-    if (req?.client?.page) {
-      delete clientsArray[req.params.session];
-      await req.client.logout();
+    if (!/^[A-Za-z0-9_-]+$/.test(session)) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid session name' });
     }
-    const path = config.customUserDataDir + session;
-    const pathToken = tokenFilePath(session);
-    if (fs.existsSync(path)) {
-      await fs.promises.rm(path, {
-        recursive: true,
-      });
-    }
-    if (fs.existsSync(pathToken)) {
-      await fs.promises.rm(pathToken);
-    }
+    await cleanupSession(session, async (client) => {
+      const leaf = path.basename(session);
+      if (leaf !== session || leaf === '.' || leaf === '..') {
+        throw new Error('Invalid session path');
+      }
+      if (client?.page && typeof client.logout === 'function') {
+        await client.logout();
+      }
+      const root = path.resolve(config.customUserDataDir);
+      const pathUserData = path.resolve(root, leaf);
+      if (path.dirname(pathUserData) !== root) {
+        throw new Error('Invalid session path');
+      }
+      // Upstream's ./tokens misses the file when SESSION_DATA_DIR is set.
+      const pathToken = tokenFilePath(leaf);
+      if (fs.existsSync(pathUserData)) {
+        await fs.promises.rm(pathUserData, { recursive: true });
+      }
+      if (fs.existsSync(pathToken)) {
+        await fs.promises.rm(pathToken);
+      }
+    });
     res.status(200).json({ success: true });
   } catch (error: any) {
     logger.error(error);
