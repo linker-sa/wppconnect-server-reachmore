@@ -341,6 +341,26 @@ export async function closeSession(req: Request, res: Response): Promise<any> {
   }
 }
 
+// WhatsApp Web's logout can hang (staging 2026-10-21: over 30 s, so the caller
+// gave up and the session's browser stayed open). Past this, it is treated as a
+// failed logout: the browser is closed and the removal finishes.
+export const LOGOUT_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  what: string
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${what} timed out after ${ms}ms`)),
+      ms
+    );
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
 export async function logOutSession(req: Request, res: Response): Promise<any> {
   /**
    * #swagger.tags = ["Auth"]
@@ -363,7 +383,8 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
     }
     await cleanupSession(session, async (client) => {
       try {
-        if (typeof client?.logout === 'function') await client.logout();
+        if (typeof client?.logout === 'function')
+          await withTimeout(client.logout(), LOGOUT_TIMEOUT_MS, 'logout');
       } catch (error) {
         // The phone unlinked first: the page is reloading and logout() throws
         // ("InvocationInterface was not inited"). The device is unpaired either
@@ -374,7 +395,7 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
         req.logger.warn(
           `[${session}] logout failed, closing and removing it anyway: ${error}`
         );
-        await client.close();
+        await withTimeout(client.close(), LOGOUT_TIMEOUT_MS, 'close');
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
       const pathUserData = path.resolve(config.customUserDataDir, session);

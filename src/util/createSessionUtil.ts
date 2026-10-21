@@ -82,6 +82,11 @@ export default class CreateSessionUtil {
     const ownsAttempt = () =>
       clientsArray[session] === client &&
       !['CLOSED', 'CLOSING', 'ERROR'].includes(client.status);
+    // An unpaired page reports "Session Unpaired" as disconnectedMobile before
+    // it shows the QR. Only a session that logged in during this attempt has a
+    // phone to lose; closing on the first report would end every new pairing,
+    // since the ownership check above then drops the QR that follows.
+    let loggedIn = false;
     try {
       client.status = 'INITIALIZING';
       client.config = req.body;
@@ -172,6 +177,11 @@ export default class CreateSessionUtil {
               trackSessionStatus(session, statusFind, req.logger);
               // A cleanup or newer start owns this session now.
               if (!ownsAttempt()) return;
+              if (
+                statusFind === StatusFind.isLogged ||
+                statusFind === StatusFind.qrReadSuccess
+              )
+                loggedIn = true;
               try {
                 eventEmitter.emit(
                   `status-${client.session}`,
@@ -180,7 +190,7 @@ export default class CreateSessionUtil {
                 );
                 if (
                   statusFind === StatusFind.autocloseCalled ||
-                  statusFind === StatusFind.disconnectedMobile
+                  (statusFind === StatusFind.disconnectedMobile && loggedIn)
                 ) {
                   client.status = 'CLOSED';
                   client.qrcode = null;
