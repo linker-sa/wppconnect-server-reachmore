@@ -1,4 +1,8 @@
-import { closeSession, logOutSession } from '../sessionController';
+import {
+  closeSession,
+  LOGOUT_TIMEOUT_MS,
+  logOutSession,
+} from '../sessionController';
 
 jest.mock('../../util/manageSession', () => ({ __esModule: true }));
 jest.mock('../../util/getAllTokens', () => ({
@@ -99,5 +103,32 @@ describe('logout-session', () => {
     await settle();
     expect(r.status).toHaveBeenCalledWith(200);
     expect(callWebHook).not.toHaveBeenCalled();
+  });
+});
+
+describe('logout-session when logout() never returns', () => {
+  afterEach(() => jest.useRealTimers());
+
+  // Staging 2026-10-21: logout hung past the caller's 30 s timeout, so the
+  // session's browser was never closed.
+  it('closes the browser and answers 200 before the caller gives up', async () => {
+    jest.useFakeTimers();
+    const client = {
+      status: 'CONNECTED',
+      config: {},
+      logout: jest.fn(() => new Promise(() => undefined)),
+      close: jest.fn(async () => null),
+    };
+    clientsArray.wpp_a = client;
+    const r = res();
+
+    const done = logOutSession(req('wpp_a', client), r);
+    await jest.advanceTimersByTimeAsync(LOGOUT_TIMEOUT_MS + 1000);
+    await done;
+
+    expect(LOGOUT_TIMEOUT_MS).toBeLessThan(30_000);
+    expect(client.close).toHaveBeenCalled();
+    expect(clientsArray.wpp_a).toBeUndefined();
+    expect(r.status).toHaveBeenCalledWith(200);
   });
 });
