@@ -26,6 +26,9 @@ import { Logger } from 'winston';
 
 import { version } from '../package.json';
 import config from './config';
+import { managerRoutes } from './manager/routes';
+import { installManagerSocket } from './manager/socket';
+import { installManagerStatic } from './manager/static';
 import { convert } from './mapper/index';
 import routes from './routes';
 import { ServerOptions } from './types/ServerOptions';
@@ -39,8 +42,6 @@ import { createLogger } from './util/logger';
 import { startResourceMonitor } from './util/resourceMonitor';
 import { startSessionRecycler } from './util/sessionRecycler';
 import { clientsArray } from './util/sessionUtil';
-
-//require('dotenv').config();
 
 export const logger = createLogger(config.log);
 
@@ -102,6 +103,8 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     next();
   });
 
+  app.use('/api/manager', managerRoutes);
+  installManagerStatic(app);
   app.use(routes);
 
   createFolders();
@@ -112,6 +115,7 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     },
   });
 
+  installManagerSocket(io, serverOptions.secretKey!);
   io.on('connection', (sock) => {
     logger.info(`ID: ${sock.id} entrou`);
 

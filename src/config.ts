@@ -1,19 +1,44 @@
+import dotenv from 'dotenv';
+
 import { ServerOptions } from './types/ServerOptions';
 import { userDataDirBase } from './util/sessionPaths';
 
+// Loading is optional; deployment environment variables keep precedence.
+dotenv.config({ override: false });
+const env = process.env;
+
+function envNumber(name: string, fallback: number): number {
+  const value = env[name];
+  if (!value) return fallback;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export default {
-  secretKey: process.env.SECRET_KEY || 'THISISMYSECURETOKEN',
-  host: 'http://localhost',
-  port: process.env.PORT || '21465',
+  secretKey: env.SECRET_KEY || 'THISISMYSECURETOKEN',
+  host: env.HOST || 'http://localhost',
+  port: env.PORT || '21465',
   deviceName: 'WppConnect',
   poweredBy: 'WPPConnect-Server',
   startAllSession: true,
-  tokenStoreType: 'file',
-  maxListeners: 15,
+  tokenStoreType: env.TOKEN_STORE_TYPE || 'file',
+  maxListeners: envNumber('MAX_LISTENERS', 15),
+  // From SESSION_DATA_DIR (sessionPaths), not CUSTOM_USER_DATA_DIR: parking and
+  // restore read the same base, so the two must never point at different disks.
   customUserDataDir: userDataDirBase,
   webhook: {
-    url: null,
+    url: env.WEBHOOK_URL || null,
+    allowedUrls: (env.WEBHOOK_ALLOWED_URLS || '')
+      .split(',')
+      .map((url) => url.trim())
+      .filter(Boolean),
     autoDownload: true,
+    retryAttempts: envNumber('WEBHOOK_RETRY_ATTEMPTS', 3),
+    retryDelay: envNumber('WEBHOOK_RETRY_DELAY', 5000),
+    requestTimeout: envNumber('WEBHOOK_REQUEST_TIMEOUT', 30000),
+    // Bytes; media larger than this is not inlined as base64 (0 = no limit).
+    autoDownloadMaxSize: envNumber('WEBHOOK_AUTO_DOWNLOAD_MAX_SIZE', 0),
     uploadS3: false,
     readMessage: true,
     allUnreadOnStart: false,
@@ -108,19 +133,19 @@ export default {
     prefix: 'tagone-',
   },
   db: {
-    mongodbDatabase: 'tokens',
-    mongodbCollection: '',
-    mongodbUser: '',
-    mongodbPassword: '',
-    mongodbHost: '',
+    mongodbDatabase: env.MONGODB_DATABASE || 'tokens',
+    mongodbCollection: env.MONGODB_COLLECTION || '',
+    mongodbUser: env.MONGODB_USER || '',
+    mongodbPassword: env.MONGODB_PASSWORD || '',
+    mongodbHost: env.MONGODB_HOST || '',
     mongoIsRemote: true,
-    mongoURLRemote: '',
-    mongodbPort: 27017,
-    redisHost: 'localhost',
-    redisPort: 6379,
-    redisPassword: '',
-    redisDb: 0,
-    redisPrefix: 'docker',
+    mongoURLRemote: env.MONGO_URL_REMOTE || '',
+    mongodbPort: envNumber('MONGODB_PORT', 27017),
+    redisHost: env.REDIS_HOST || 'localhost',
+    redisPort: envNumber('REDIS_PORT', 6379),
+    redisPassword: env.REDIS_PASSWORD || '',
+    redisDb: envNumber('REDIS_DB', 0),
+    redisPrefix: env.REDIS_PREFIX || 'docker',
   },
   aws_s3: {
     region: 'sa-east-1' as any,

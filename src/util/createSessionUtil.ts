@@ -17,11 +17,13 @@ import { create, SocketState, StatusFind } from '@wppconnect-team/wppconnect';
 import { Request } from 'express';
 
 import { download } from '../controller/sessionController';
+import { emitManager } from '../manager/socket';
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import { consumeApiSend, fingerprintOfMessage } from './apiSendRegistry';
 import chatWootClient from './chatWootClient';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import { recordActivity } from './sessionActivity';
+import { tryBeginSessionStart } from './sessionMaintenance';
 import { trackSessionStatus } from './sessionParking';
 import { clearStaleChromiumLocks } from './sessionPaths';
 import { clientsArray, eventEmitter } from './sessionUtil';
@@ -43,9 +45,49 @@ export default class CreateSessionUtil {
     session: string,
     res?: any
   ) {
+    if (!/^[A-Za-z0-9_-]+$/.test(session)) {
+      req.logger.error(new Error('Invalid session name'));
+      return;
+    }
+    const releaseStart = tryBeginSessionStart();
+    if (!releaseStart) {
+      req.logger.info('Session start skipped: backup or restore in progress');
+      if (res && !res.headersSent && !res._headerSent) {
+        res.status(503).json({
+          status: false,
+          message: 'Session backup or restore is in progress. Try again later.',
+        });
+      }
+      return;
+    }
     try {
-      let client = this.getClient(session) as any;
-      if (client.status != null && client.status !== 'CLOSED') return;
+      await this.initializeSession(req, clientsArray, session, res);
+    } finally {
+      releaseStart();
+    }
+  }
+
+  private async initializeSession(
+    req: any,
+    clientsArray: any,
+    session: string,
+    res?: any
+  ) {
+    let client = this.getClient(session) as any;
+    if (client.status != null && client.status !== 'CLOSED') return;
+    // A retry gets a distinct owner so callbacks from a failed attempt cannot
+    // close or publish pairing data for the replacement.
+    client = clientsArray[session] = { ...client };
+    let initializedClient: typeof client;
+    const ownsAttempt = () =>
+      clientsArray[session] === client &&
+      !['CLOSED', 'CLOSING', 'ERROR'].includes(client.status);
+    // An unpaired page reports "Session Unpaired" as disconnectedMobile before
+    // it shows the QR. Only a session that logged in during this attempt has a
+    // phone to lose; closing on the first report would end every new pairing,
+    // since the ownership check above then drops the QR that follows.
+    let loggedIn = false;
+    try {
       client.status = 'INITIALIZING';
       client.config = req.body;
 
@@ -54,7 +96,7 @@ export default class CreateSessionUtil {
       const tokenData = await myTokenStore.getToken(session);
 
       // we need this to update phone in config every time session starts, so we can ask for code for it again.
-      myTokenStore.setToken(session, tokenData ?? {});
+      await myTokenStore.setToken(session, tokenData ?? {});
 
       this.startChatWootClient(client);
 
@@ -112,6 +154,7 @@ export default class CreateSessionUtil {
                   'WPPConnect-Server'
                 : undefined,
             catchLinkCode: (code: string) => {
+              if (!ownsAttempt()) return;
               this.exportPhoneCode(req, client.config.phone, code, client, res);
             },
             catchQR: (
@@ -120,15 +163,25 @@ export default class CreateSessionUtil {
               attempt: any,
               urlCode: string
             ) => {
+              if (!ownsAttempt()) return;
               this.exportQR(req, base64Qr, urlCode, client, res);
             },
             onLoadingScreen: (percent: string, message: string) => {
               req.logger.info(`[${session}] ${percent}% - ${message}`);
             },
             statusFind: (statusFind: StatusFind) => {
-              // Before the block below: its client.close() throws on a session
-              // that never connected, which skips everything after it.
+              // Before the ownership check: parking waits for the browserClose
+              // that follows autocloseCalled, and by then this attempt no
+              // longer owns the session. Also before the block below: its
+              // client.close() throws on a session that never connected.
               trackSessionStatus(session, statusFind, req.logger);
+              // A cleanup or newer start owns this session now.
+              if (!ownsAttempt()) return;
+              if (
+                statusFind === StatusFind.isLogged ||
+                statusFind === StatusFind.qrReadSuccess
+              )
+                loggedIn = true;
               try {
                 eventEmitter.emit(
                   `status-${client.session}`,
@@ -137,7 +190,7 @@ export default class CreateSessionUtil {
                 );
                 if (
                   statusFind === StatusFind.autocloseCalled ||
-                  statusFind === StatusFind.disconnectedMobile
+                  (statusFind === StatusFind.disconnectedMobile && loggedIn)
                 ) {
                   client.status = 'CLOSED';
                   client.qrcode = null;
@@ -155,6 +208,14 @@ export default class CreateSessionUtil {
         )
       );
 
+      initializedClient = wppClient;
+
+      // A late browser from a cancelled start must not resurrect the session
+      // or overwrite a newer initialization.
+      if (!ownsAttempt()) {
+        await wppClient.close();
+        return;
+      }
       client = clientsArray[session] = Object.assign(wppClient, client);
       await this.start(req, client);
 
@@ -178,9 +239,18 @@ export default class CreateSessionUtil {
       }
     } catch (e) {
       req.logger.error(e);
-      if (e instanceof Error && e.name == 'TimeoutError') {
-        const client = this.getClient(session) as any;
-        client.status = 'CLOSED';
+      if (clientsArray[session] === client) {
+        client.status = 'CLOSING';
+        try {
+          if (initializedClient) await initializedClient.close();
+          client.status = 'CLOSED';
+          client.qrcode = null;
+        } catch (closeError) {
+          // Keep the failed runtime available to explicit cleanup rather than
+          // starting a second browser against a profile still owned by it.
+          client.status = 'ERROR';
+          req.logger.error(closeError);
+        }
       }
     }
   }
@@ -246,6 +316,9 @@ export default class CreateSessionUtil {
       data: 'data:image/png;base64,' + imageBuffer.toString('base64'),
       session: client.session,
     });
+    emitManager(req.io, client.session, 'qrCode', {
+      qrcode: 'data:image/png;base64,' + imageBuffer.toString('base64'),
+    });
 
     callWebHook(client, req, 'qrcode', {
       qrcode: qrCode,
@@ -262,7 +335,6 @@ export default class CreateSessionUtil {
   }
 
   async onParticipantsChanged(req: any, client: any) {
-    await client.isConnected();
     await client.onParticipantsChanged((message: any) => {
       callWebHook(client, req, 'onparticipantschanged', message);
     });
@@ -276,10 +348,12 @@ export default class CreateSessionUtil {
       req.logger.info(`Started Session: ${client.session}`);
       //callWebHook(client, req, 'session-logged', { status: 'CONNECTED'});
       req.io.emit('session-logged', { status: true, session: client.session });
+      emitManager(req.io, client.session, 'status', { status: 'CONNECTED' });
       startHelper(client, req);
     } catch (error) {
       req.logger.error(error);
       req.io.emit('session-error', client.session);
+      emitManager(req.io, client.session, 'status', { status: 'ERROR' });
     }
 
     await this.checkStateSession(client, req);
@@ -296,6 +370,7 @@ export default class CreateSessionUtil {
 
   async checkStateSession(client: WhatsAppServer, req: Request) {
     await client.onStateChange((state) => {
+      emitManager(req.io, client.session, 'status', { status: state });
       req.logger.info(`State Change ${state}: ${client.session}`);
       const conflits = [SocketState.CONFLICT];
 
@@ -332,6 +407,7 @@ export default class CreateSessionUtil {
       }
 
       req.io.emit('received-message', { response: message });
+      emitManager(req.io, client.session, 'message', message);
       // Only what a human sent from the phone or another linked device; our own
       // API sends are dropped here (see apiSendRegistry).
       if (
@@ -363,7 +439,6 @@ export default class CreateSessionUtil {
   }
 
   async onReactionMessage(client: WhatsAppServer, req: Request) {
-    await client.isConnected();
     await client.onReactionMessage(async (reaction: any) => {
       req.io.emit('onreactionmessage', reaction);
       callWebHook(client, req, 'onreactionmessage', reaction);
@@ -371,21 +446,18 @@ export default class CreateSessionUtil {
   }
 
   async onRevokedMessage(client: WhatsAppServer, req: Request) {
-    await client.isConnected();
     await client.onRevokedMessage(async (response: any) => {
       req.io.emit('onrevokedmessage', response);
       callWebHook(client, req, 'onrevokedmessage', response);
     });
   }
   async onPollResponse(client: WhatsAppServer, req: Request) {
-    await client.isConnected();
     await client.onPollResponse(async (response: any) => {
       req.io.emit('onpollresponse', response);
       callWebHook(client, req, 'onpollresponse', response);
     });
   }
   async onLabelUpdated(client: WhatsAppServer, req: Request) {
-    await client.isConnected();
     await client.onUpdateLabel(async (response: any) => {
       req.io.emit('onupdatelabel', response);
       callWebHook(client, req, 'onupdatelabel', response);
