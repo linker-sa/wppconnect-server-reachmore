@@ -1,3 +1,36 @@
+## [2.10.67](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.66...v2.10.67) (2026-10-25)
+
+## [2.10.66](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.65...v2.10.66) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @wppconnect-team/wppconnect to ^2.3.6 ([#2674](https://github.com/wppconnect-team/wppconnect-server/issues/2674)) ([a06c958](https://github.com/wppconnect-team/wppconnect-server/commit/a06c958d4e616227dead044d484b324885afb0de))
+
+## [2.10.65](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.64...v2.10.65) (2026-10-25)
+
+## [2.10.64](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.63...v2.10.64) (2026-10-24)
+
+## [2.10.63](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.62...v2.10.63) (2026-10-23)
+
+## [2.10.62](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.61...v2.10.62) (2026-10-23)
+
+
+### Bug Fixes
+
+* **session:** keep QR flowing after the unpaired disconnectedMobile ([2505151](https://github.com/wppconnect-team/wppconnect-server/commit/25051513168c8b2d94f9a013be8473872b649af1))
+
+## [2.10.61](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.60...v2.10.61) (2026-10-21)
+
+## [2.10.60](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.59...v2.10.60) (2026-10-20)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @wppconnect-team/wppconnect to ^2.3.5 ([#2647](https://github.com/wppconnect-team/wppconnect-server/issues/2647)) ([fdd3cc9](https://github.com/wppconnect-team/wppconnect-server/commit/fdd3cc9d49a77b974f30f1a53ad9f794483973f0))
+
+## [2.10.59](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.58...v2.10.59) (2026-10-20)
+
 ## [2.10.58](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.57...v2.10.58) (2026-10-18)
 
 ## [2.10.57](https://github.com/wppconnect-team/wppconnect-server/compare/v2.10.56...v2.10.57) (2026-10-18)
