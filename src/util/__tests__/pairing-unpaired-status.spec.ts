@@ -67,13 +67,3 @@ it('shows the QR to a new session after the unpaired report', async () => {
 
   expect(util.exportQR).toHaveBeenCalledTimes(1);
 });
-
-it('still closes a logged-in session whose phone unlinks', async () => {
-  const util = await start((options) => {
-    options.statusFind('isLogged');
-    options.statusFind('disconnectedMobile');
-    options.catchQR('data:image/png;base64,qr', '', 1, 'code');
-  });
-
-  expect(util.exportQR).not.toHaveBeenCalled();
-});

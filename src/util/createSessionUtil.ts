@@ -82,11 +82,6 @@ export default class CreateSessionUtil {
     const ownsAttempt = () =>
       clientsArray[session] === client &&
       !['CLOSED', 'CLOSING', 'ERROR'].includes(client.status);
-    // An unpaired page reports "Session Unpaired" as disconnectedMobile before
-    // it shows the QR. Only a session that logged in during this attempt has a
-    // phone to lose; closing on the first report would end every new pairing,
-    // since the ownership check above then drops the QR that follows.
-    let loggedIn = false;
     try {
       client.status = 'INITIALIZING';
       client.config = req.body;
@@ -177,11 +172,19 @@ export default class CreateSessionUtil {
               trackSessionStatus(session, statusFind, req.logger);
               // A cleanup or newer start owns this session now.
               if (!ownsAttempt()) return;
+              // wppconnect emits disconnectedMobile ~1s after "Session Unpaired"
+              // on a fresh, never-paired page. Before the runtime is attached
+              // there is nothing to disconnect; treating it as terminal marks
+              // this attempt CLOSED and silently drops every later QR callback.
               if (
-                statusFind === StatusFind.isLogged ||
-                statusFind === StatusFind.qrReadSuccess
-              )
-                loggedIn = true;
+                statusFind === StatusFind.disconnectedMobile &&
+                typeof client.close !== 'function'
+              ) {
+                req.logger.info(
+                  `[${session}] Ignoring disconnectedMobile before the session is ready`
+                );
+                return;
+              }
               try {
                 eventEmitter.emit(
                   `status-${client.session}`,
@@ -190,11 +193,13 @@ export default class CreateSessionUtil {
                 );
                 if (
                   statusFind === StatusFind.autocloseCalled ||
-                  (statusFind === StatusFind.disconnectedMobile && loggedIn)
+                  statusFind === StatusFind.disconnectedMobile
                 ) {
                   client.status = 'CLOSED';
                   client.qrcode = null;
-                  client.close();
+                  // During initialization `client` is a plain state object with
+                  // no close(); calling it threw and skipped the webhook below.
+                  if (typeof client.close === 'function') client.close();
                   clientsArray[session] = undefined;
                 }
                 callWebHook(client, req, 'status-find', {
