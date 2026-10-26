@@ -3,6 +3,7 @@ import { CreateConfig } from '@wppconnect-team/wppconnect';
 
 export interface ServerOptions {
   secretKey: string;
+  sessionBackupEnabled: boolean;
   host: string;
   port: number;
   deviceName: string;
@@ -13,7 +14,12 @@ export interface ServerOptions {
   customUserDataDir: string;
   webhook: {
     url: string;
+    allowedUrls?: string[];
     autoDownload: boolean;
+    retryAttempts?: number;
+    retryDelay?: number;
+    requestTimeout?: number;
+    autoDownloadMaxSize?: number;
     uploadS3: boolean;
     readMessage: boolean;
     allUnreadOnStart: boolean;

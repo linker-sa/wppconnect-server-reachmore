@@ -26,6 +26,9 @@ import { Logger } from 'winston';
 
 import { version } from '../package.json';
 import config from './config';
+import { managerRoutes } from './manager/routes';
+import { installManagerSocket } from './manager/socket';
+import { installManagerStatic } from './manager/static';
 import { convert } from './mapper/index';
 import routes from './routes';
 import { ServerOptions } from './types/ServerOptions';
@@ -37,10 +40,9 @@ import {
 import { installGracefulShutdown } from './util/gracefulShutdown';
 import { createLogger } from './util/logger';
 import { startResourceMonitor } from './util/resourceMonitor';
+import { PUBLIC_DEFAULT_SECRETS } from './util/secret';
 import { startSessionRecycler } from './util/sessionRecycler';
 import { clientsArray } from './util/sessionUtil';
-
-//require('dotenv').config();
 
 export const logger = createLogger(config.log);
 
@@ -54,6 +56,14 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
   }
 
   serverOptions = mergeDeep({}, config, serverOptions);
+  if (
+    !serverOptions.secretKey ||
+    PUBLIC_DEFAULT_SECRETS.includes(serverOptions.secretKey)
+  ) {
+    throw new Error(
+      'SECRET_KEY is unset or a public sample value; refusing to start'
+    );
+  }
   defaultLogger.level = serverOptions?.log?.level
     ? serverOptions.log.level
     : 'silly';
@@ -102,6 +112,8 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     next();
   });
 
+  app.use('/api/manager', managerRoutes);
+  installManagerStatic(app);
   app.use(routes);
 
   createFolders();
@@ -112,6 +124,7 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
     },
   });
 
+  installManagerSocket(io, serverOptions.secretKey!);
   io.on('connection', (sock) => {
     logger.info(`ID: ${sock.id} entrou`);
 

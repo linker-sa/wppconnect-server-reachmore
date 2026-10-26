@@ -8,6 +8,9 @@ on:
     branches:
       - '*'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +21,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22.22.2
+          node-version: 22.23.4
 
       - name: Enable Corepack
         run: corepack enable
@@ -44,6 +47,9 @@ jobs:
       - name: Build source
         run: yarn build
 
+      - name: Test server and Manager contracts
+        run: yarn test --runInBand
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +59,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4.4.0
         with:
-          node-version: 22.22.2
+          node-version: 22.23.4
 
       - name: Enable Corepack
         run: corepack enable
