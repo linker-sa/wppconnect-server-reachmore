@@ -54,5 +54,6 @@ RUN apk add --no-cache \
 
 EXPOSE 21465
 COPY --from=manager /manager ./manager
-ENV MANAGER_ENABLED=true
+# The Manager UI is an admin surface; set MANAGER_ENABLED=true where it is needed.
+ENV MANAGER_ENABLED=false
 ENTRYPOINT ["node", "dist/server.js"]
