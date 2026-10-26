@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 import bcrypt from 'bcrypt';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash } from 'crypto';
 
 export function validSession(session: unknown): session is string {
   return (
@@ -24,12 +24,7 @@ export function validSession(session: unknown): session is string {
   );
 }
 
-export function isAdmin(token: unknown, secret: string): boolean {
-  if (typeof token !== 'string' || !token || !secret) return false;
-  const a = Buffer.from(token);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+export { isAdmin } from '../util/secret';
 
 /**
  * Successful session verifications, keyed by a digest of the exact credential

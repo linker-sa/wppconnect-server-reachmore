@@ -346,11 +346,12 @@ export async function autoDownload(client: any, req: any, message: any) {
 
 export async function startAllSessions(config: any, logger: any) {
   try {
-    await api.post(
-      `${config.host}:${config.port}/api/${config.secretKey}/start-all`
-    );
+    await api.post(`${config.host}:${config.port}/api/-/start-all`, null, {
+      headers: { 'x-secret-key': config.secretKey },
+    });
   } catch (e) {
-    logger.error(e);
+    // Not the error object: it carries the request headers, secret included.
+    logger.error(`start-all failed: ${(e as Error).message}`);
   }
 }
 

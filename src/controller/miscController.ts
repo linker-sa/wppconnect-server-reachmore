@@ -21,6 +21,7 @@ import path from 'path';
 import { logger } from '..';
 import config from '../config';
 import { backupSessions, restoreSessions } from '../util/manageSession';
+import { requestHasSecret } from '../util/secret';
 import { tokenFilePath } from '../util/sessionPaths';
 import { cleanupSession } from '../util/sessionUtil';
 
@@ -44,12 +45,15 @@ export async function backupAllSessions(req: Request, res: Response) {
         },
       }
      */
-  const { secretkey } = req.params;
+  if (!config.sessionBackupEnabled)
+    return res
+      .status(404)
+      .json({ response: 'error', message: 'Session backup is disabled' });
 
   // Must return: this endpoint zips and returns EVERY session's token files
   // (WhatsApp credentials + webhook URLs). Without the return a wrong secret
   // still got the backup.
-  if (secretkey !== config.secretKey) {
+  if (!requestHasSecret(req, config.secretKey)) {
     return res.status(400).json({
       response: 'error',
       message: 'The token is incorrect',
@@ -98,11 +102,14 @@ export async function restoreAllSessions(req: Request, res: Response) {
       }
     }
   */
-  const { secretkey } = req.params;
+  if (!config.sessionBackupEnabled)
+    return res
+      .status(404)
+      .json({ response: 'error', message: 'Session backup is disabled' });
 
   // Must return: without it a wrong secret still overwrote every session's
   // token file (and webhook URL) from the uploaded zip.
-  if (secretkey !== config.secretKey) {
+  if (!requestHasSecret(req, config.secretKey)) {
     return res.status(400).json({
       response: 'error',
       message: 'The token is incorrect',
@@ -159,11 +166,11 @@ export async function clearSessionData(req: Request, res: Response) {
   */
 
   try {
-    const { secretkey, session } = req.params;
+    const { session } = req.params;
 
     // Must return: without it a wrong secret still logged out the session and
     // deleted its profile + token file.
-    if (secretkey !== config.secretKey) {
+    if (!requestHasSecret(req, config.secretKey)) {
       return res.status(400).json({
         response: 'error',
         message: 'The token is incorrect',

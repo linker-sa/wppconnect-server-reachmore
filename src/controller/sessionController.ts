@@ -26,6 +26,7 @@ import config from '../config';
 import CreateSessionUtil from '../util/createSessionUtil';
 import { callWebHook, contactToArray } from '../util/functions';
 import getAllTokens from '../util/getAllTokens';
+import { requestHasSecret } from '../util/secret';
 import { isSessionMaintenanceActive } from '../util/sessionMaintenance';
 import { tokenFilePath } from '../util/sessionPaths';
 import {
@@ -136,21 +137,10 @@ export async function startAllSessions(
       schema: 'THISISMYSECURECODE'
      }
    */
-  const { secretkey } = req.params;
-  const { authorization: token } = req.headers;
-
-  let tokenDecrypt = '';
-
-  if (secretkey === undefined) {
-    tokenDecrypt = token?.split(' ')[0] ?? '';
-  } else {
-    tokenDecrypt = secretkey;
-  }
-
   // Check the secret before touching anything. This used to answer 400 and
   // then fall through, so a request with a wrong secret still started every
   // session (and then threw "Cannot set headers after they are sent").
-  if (tokenDecrypt !== req.serverOptions.secretKey) {
+  if (!requestHasSecret(req, req.serverOptions.secretKey)) {
     return res.status(400).json({
       response: 'error',
       message: 'The token is incorrect',
@@ -215,21 +205,10 @@ export async function showAllSessions(
       schema: 'THISISMYSECURETOKEN'
      }
    */
-  const { secretkey } = req.params;
-  const { authorization: token } = req.headers;
-
-  let tokenDecrypt: any = '';
-
-  if (secretkey === undefined) {
-    tokenDecrypt = token?.split(' ')[0];
-  } else {
-    tokenDecrypt = secretkey;
-  }
-
   const arr: any = [];
 
   // Must return: without it a wrong secret still got the full session list.
-  if (tokenDecrypt !== req.serverOptions.secretKey) {
+  if (!requestHasSecret(req, req.serverOptions.secretKey)) {
     return res.status(400).json({
       response: false,
       message: 'The token is incorrect',

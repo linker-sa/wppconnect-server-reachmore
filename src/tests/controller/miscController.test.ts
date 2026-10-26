@@ -57,12 +57,27 @@ function createResponse() {
 
 function createRequest(secretkey: string) {
   return {
+    headers: {},
     params: { secretkey },
     file: { mimetype: 'application/zip', path: 'upload.zip' },
     res: { end: jest.fn() },
     logger: { error: jest.fn() },
   } as any;
 }
+
+beforeEach(() => {
+  config.sessionBackupEnabled = true;
+});
+
+it('answers 404 and backs nothing up while session backup is off', async () => {
+  config.sessionBackupEnabled = false;
+  const res = createResponse();
+  await backupAllSessions(createRequest(config.secretKey), res);
+  await restoreAllSessions(createRequest(config.secretKey), createResponse());
+  expect(res.sent[0].status).toBe(404);
+  expect(backupSessions).not.toHaveBeenCalled();
+  expect(restoreSessions).not.toHaveBeenCalled();
+});
 
 describe('backup and restore secret key guards', () => {
   beforeEach(() => jest.clearAllMocks());

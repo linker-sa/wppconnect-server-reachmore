@@ -40,6 +40,7 @@ import {
 import { installGracefulShutdown } from './util/gracefulShutdown';
 import { createLogger } from './util/logger';
 import { startResourceMonitor } from './util/resourceMonitor';
+import { PUBLIC_DEFAULT_SECRETS } from './util/secret';
 import { startSessionRecycler } from './util/sessionRecycler';
 import { clientsArray } from './util/sessionUtil';
 
@@ -55,6 +56,14 @@ export function initServer(serverOptions: Partial<ServerOptions>): {
   }
 
   serverOptions = mergeDeep({}, config, serverOptions);
+  if (
+    !serverOptions.secretKey ||
+    PUBLIC_DEFAULT_SECRETS.includes(serverOptions.secretKey)
+  ) {
+    throw new Error(
+      'SECRET_KEY is unset or a public sample value; refusing to start'
+    );
+  }
   defaultLogger.level = serverOptions?.log?.level
     ? serverOptions.log.level
     : 'silly';

@@ -16,6 +16,8 @@
 import bcrypt from 'bcrypt';
 import { Request, Response } from 'express';
 
+import { requestHasSecret } from '../util/secret';
+
 const saltRounds = 10;
 
 export async function encryptSession(
@@ -32,19 +34,10 @@ export async function encryptSession(
      }
      #swagger.autoHeaders = false
    */
-  const { session, secretkey } = req.params;
-  const { authorization: token } = req.headers;
+  const { session } = req.params;
   const secureTokenEnv = req.serverOptions.secretKey;
 
-  let tokenDecrypt = '';
-
-  if (secretkey === undefined) {
-    tokenDecrypt = (token as string).split(' ')[0];
-  } else {
-    tokenDecrypt = secretkey;
-  }
-
-  if (tokenDecrypt !== secureTokenEnv) {
+  if (!requestHasSecret(req, secureTokenEnv)) {
     return res.status(400).json({
       response: false,
       message: 'The SECRET_KEY is incorrect',

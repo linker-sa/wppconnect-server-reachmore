@@ -66,7 +66,14 @@ it('keeps deployment environment values ahead of the .env file', async () => {
 
 it('starts with legacy defaults when no .env exists', async () => {
   const { default: config } = await import('./config');
-  expect(config.secretKey).toBe('THISISMYSECURETOKEN');
+  expect(config.secretKey).toBe('');
+  expect(config.sessionBackupEnabled).toBe(false);
   expect(config.port).toBe('21465');
   expect(config.maxListeners).toBe(15);
+});
+
+it('enables the session backup endpoints only when asked', async () => {
+  process.env.ENABLE_SESSION_BACKUP = 'true';
+  const { default: config } = await import('./config');
+  expect(config.sessionBackupEnabled).toBe(true);
 });
