@@ -3,6 +3,7 @@ import { CreateConfig } from '@wppconnect-team/wppconnect';
 
 export interface ServerOptions {
   secretKey: string;
+  sessionBackupEnabled: boolean;
   host: string;
   port: number;
   deviceName: string;

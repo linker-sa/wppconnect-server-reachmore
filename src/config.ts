@@ -16,7 +16,9 @@ function envNumber(name: string, fallback: number): number {
 }
 
 export default {
-  secretKey: env.SECRET_KEY || 'THISISMYSECURETOKEN',
+  secretKey: env.SECRET_KEY || '',
+  // GET /backup-sessions returns every session's WhatsApp credentials; off unless asked for.
+  sessionBackupEnabled: env.ENABLE_SESSION_BACKUP === 'true',
   host: env.HOST || 'http://localhost',
   port: env.PORT || '21465',
   deviceName: 'WppConnect',

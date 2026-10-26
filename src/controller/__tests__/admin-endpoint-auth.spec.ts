@@ -47,6 +47,7 @@ beforeEach(() => {
   backupSessions.mockClear();
   restoreSessions.mockClear();
   getAllTokens.mockClear();
+  config.sessionBackupEnabled = true;
 });
 
 const WRONG = `${config.secretKey}_WRONG`;
