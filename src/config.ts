@@ -69,7 +69,9 @@ export default {
     daysToArchive: 45,
   },
   log: {
-    level: 'silly', // Before open a issue, change level to silly and retry a action
+    // silly logs whole message payloads; http still shows session state.
+    // Set LOG_LEVEL=silly to debug an issue.
+    level: env.LOG_LEVEL || 'http',
     logger: ['console', 'file'],
   },
   createOptions: {
