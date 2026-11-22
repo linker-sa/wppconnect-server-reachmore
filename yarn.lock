@@ -5105,9 +5105,9 @@ __metadata:
   linkType: soft
 
 "@wppconnect/wa-js@npm:^4.7.2":
-  version: 4.7.2
-  resolution: "@wppconnect/wa-js@npm:4.7.2"
-  checksum: 10c0/66052428e761658f1dc744e30a19360c0f9e0e3524fbec0b04f4ac6b4de4de96827e97eb178d0f768a391284d3b33b5ea42b3694401d1c50778dbcdc2fef87bd
+  version: 4.8.2
+  resolution: "@wppconnect/wa-js@npm:4.8.2"
+  checksum: 10c0/9a0f9bbfc3e018d17ea53d7e5e94a555c99190b93a7fd464ac7ffe140221bef4ddf5a49cc81adaa6ded01152ec1edce097b35defa6192170716a49f92139e586
   languageName: node
   linkType: hard
 
